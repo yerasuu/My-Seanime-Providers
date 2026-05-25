@@ -1,0 +1,13 @@
+{
+  "id": "shademanga",
+  "name": "Shade Manga",
+  "description": "Proveedor de manga y cómics de Shade Manga.",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/reading/refs/heads/main/shademanga/manifest.json",
+  "version": "1.0.0",
+  "author": "yerasuu",
+  "icon": "https://raw.githubusercontent.com/yerasuu/reading/refs/heads/main/shademanga/icon.png",
+  "type": "manga-provider",
+  "language": "typescript",
+  "lang": "es",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/reading/refs/heads/main/shademanga/index.ts"
+}
