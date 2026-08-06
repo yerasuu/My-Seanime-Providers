@@ -23,6 +23,12 @@ interface ChapterDetails {
     scanlator: string;
 }
 
+interface ChapterPage {
+    url: string;
+    index: number;
+    headers: Record<string, string>;
+}
+
 interface ScanGroup {
     id: number;
     nombre: string;
@@ -31,39 +37,24 @@ interface ScanGroup {
     color: string | null;
 }
 
-interface ApiChapter {
+interface ApiSearchItem {
+    id: number;
+    titulo: string;
+    portadaUrl?: string;
+}
+
+interface ApiChapterItem {
     id: number;
     publicId: string;
     numeroCapitulo: number;
-    titulo: string;
-    totalPaginas: number;
-    fechaSubida: string;
-    orden: number;
-    visible: boolean;
-    tomoId: number | null;
-    grupoScan: ScanGroup;
-    score: number;
-    miVoto: number | null;
-}
-
-interface ChapterPage {
-    url: string;
-    index: number;
-    headers: Record<string, string>;
+    grupoScan?: ScanGroup;
 }
 
 interface ApiPagesResponse {
     paginas: string[];
-    totalPaginas: number;
-    capituloId: number;
-    publicCapituloId: string;
-    serieId: number;
-    publicSerieId: string;
-    numeroCapitulo: number;
-    grupoScan: ScanGroup;
-    score: number;
-    miVoto: number | null;
 }
+
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 class Provider {
     private web = "https://shademanga.com"
@@ -75,14 +66,17 @@ class Provider {
         }
     }
 
+    private buildHeaders(referer: string): Record<string, string> {
+        return {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Referer": referer,
+        }
+    }
+
     async fetchWithHeaders(url: string, baseApi?: string) {
-        const referer = baseApi || this.web;
         return fetch(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept": "application/json",
-                "Referer": referer,
-            }
+            headers: this.buildHeaders(baseApi || this.web)
         })
     }
 
@@ -96,20 +90,15 @@ class Provider {
                 return [];
             }
 
-            const data = await response.json();
+            const series: ApiSearchItem[] = await response.json();
             const results: SearchResult[] = [];
-            const series = Array.isArray(data) ? data : data.series || data.data || [];
 
             for (const item of series) {
-                const id = item.id;
-                const title = item.titulo;
-                const image = item.portadaUrl || "";
-
-                if (id && title) {
+                if (item.id && item.titulo) {
                     results.push({
-                        id: String(id),
-                        title,
-                        image,
+                        id: String(item.id),
+                        title: item.titulo,
+                        image: item.portadaUrl || "",
                     });
                 }
             }
@@ -130,25 +119,22 @@ class Provider {
                 return [];
             }
 
-            const data = await response.json();
-            const chapterList = Array.isArray(data) ? data : data.data || [];
+            const chapterList: ApiChapterItem[] = await response.json();
 
             for (let index = 0; index < chapterList.length; index++) {
                 const chapter = chapterList[index];
                 const chapterId = chapter.publicId;
                 const chapterNum = chapter.numeroCapitulo;
-                const chapterTitle = `Capítulo ${chapterNum}`;
-                const scanGroup = chapter.grupoScan?.nombre || "Unknown";
 
                 if (chapterId && chapterNum) {
                     chapters.push({
                         id: `${mangaId}/${chapterId}`,
                         url: `${this.api}/series-locales/${mangaId}/capitulos/${chapterId}/paginas`,
-                        title: chapterTitle,
+                        title: `Capítulo ${chapterNum}`,
                         chapter: String(chapterNum),
                         index,
                         language: "es",
-                        scanlator: scanGroup
+                        scanlator: chapter.grupoScan?.nombre || "Unknown"
                     });
                 }
             }
@@ -172,10 +158,10 @@ class Provider {
                 return [];
             }
 
-            const data = await response.json();
+            const data: ApiPagesResponse = await response.json();
             const pages: ChapterPage[] = [];
 
-            if (!data || !Array.isArray(data.paginas)) {
+            if (!Array.isArray(data.paginas)) {
                 return [];
             }
 
@@ -187,7 +173,7 @@ class Provider {
                         index,
                         headers: {
                             "Referer": this.api,
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                            "User-Agent": USER_AGENT
                         }
                     });
                 }
