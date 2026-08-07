@@ -6,7 +6,7 @@ class Provider {
 
     getSettings(): Settings {
         return {
-            episodeServers: ["HLS"],
+            episodeServers: ["HLS", "MP4Upload"],
             supportsDub: true,
         };
     }
@@ -205,7 +205,23 @@ class Provider {
         }
     }
 
-    async findEpisodeServer(episodeOrId: any, _server: string): Promise<EpisodeServer> {
+    private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
+        const res = await this.fetchWithTimeout(embedUrl);
+        if (!res.ok) return null;
+        const html = await res.text();
+
+        const match = html.match(/src:\s*"([^"]+\.mp4[^"]*)"/);
+        if (!match) return null;
+
+        return {
+            url: match[1],
+            type: "mp4",
+            quality: "auto",
+            subtitles: [],
+        };
+    }
+
+    async findEpisodeServer(episodeOrId: any, server: string): Promise<EpisodeServer> {
         let slug: string;
         let number: number;
         let type: string = "sub";
@@ -258,7 +274,7 @@ class Provider {
             const serverList = data[listIndex];
             if (!Array.isArray(serverList)) throw new Error("Lista vacía");
 
-            let chosen: VideoSource | null = null;
+            let embedLink: string | null = null;
 
             for (const ptr of serverList) {
                 const srv = data[ptr];
@@ -268,22 +284,35 @@ class Provider {
 
                 if (!serverName || !link) continue;
 
-                if (serverName === "HLS") {
-                    chosen = {
-                        url: link.replace("/play/", "/m3u8/"),
-                        type: "m3u8",
-                        quality: "auto",
-                        subtitles: [],
-                    };
+                if (serverName === server) {
+                    embedLink = link;
                     break;
                 }
             }
 
-            if (!chosen) throw new Error(`No se encontró stream HLS para ${type}`);
+            if (!embedLink) throw new Error(`No se encontró servidor ${server} para ${type}`);
+
+            let chosen: VideoSource | null = null;
+            let headers: { [key: string]: string } = {};
+
+            if (server === "HLS") {
+                chosen = {
+                    url: embedLink.replace("/play/", "/m3u8/"),
+                    type: "m3u8",
+                    quality: "auto",
+                    subtitles: [],
+                };
+                headers = { Referer: "null", "Sec-Fetch-Site": "same-origin" };
+            } else if (server === "MP4Upload") {
+                chosen = await this.extractMp4Upload(embedLink);
+                headers = { Referer: "https://www.mp4upload.com/" };
+            }
+
+            if (!chosen) throw new Error(`No se pudo extraer el video de ${server}`);
 
             return {
-                server: "HLS",
-                headers: { Referer: "null", "Sec-Fetch-Site": "same-origin" },
+                server,
+                headers,
                 videoSources: [chosen]
             };
         } catch (err) {
