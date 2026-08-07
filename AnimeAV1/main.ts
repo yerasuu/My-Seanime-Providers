@@ -11,6 +11,16 @@ class Provider {
         };
     }
 
+    private async fetchWithTimeout(url: string, timeoutMs: number = 10000): Promise<Response> {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     private _resolveRemixData(json: any, isDub: boolean): SearchResult[] {
         if (!json || !json.nodes) return [];
 
@@ -43,7 +53,7 @@ class Provider {
                         id: idPayload,
                         title: title,
                         url: `${this.baseUrl}/media/${slug}`,
-                        image: `${this.cdnUrl}/covers/${realId}.jpg`,
+                        image: realId ? `${this.cdnUrl}/covers/${realId}.jpg` : undefined,
                         subOrDub: isDub ? "dub" : "sub"
                     };
                 }).filter(Boolean) as SearchResult[];
@@ -63,7 +73,7 @@ class Provider {
         const url = `${this.baseUrl}/catalogo/__data.json?${params.toString()}`;
 
         try {
-            const response = await fetch(url);
+            const response = await this.fetchWithTimeout(url);
             if (!response.ok) return [];
             const json = await response.json();
 
@@ -91,7 +101,7 @@ class Provider {
         const url = `${this.baseUrl}/media/${slug}/__data.json`;
 
         try {
-            const res = await fetch(url);
+            const res = await this.fetchWithTimeout(url);
             if (!res.ok) throw new Error("Error fetching episodes");
 
             const json = await res.json();
@@ -188,67 +198,75 @@ class Provider {
         }
 
         const pageUrl = `${this.baseUrl}/media/${slug}/${number}/__data.json`;
-        const res = await fetch(pageUrl);
-        if(!res.ok) throw new Error("Error obteniendo datos");
-        const json = await res.json();
 
-        let data: any[] | null = null;
-        let root: any = null;
+        try {
+            const res = await this.fetchWithTimeout(pageUrl);
+            if (!res.ok) throw new Error("Error obteniendo datos");
+            const json = await res.json();
 
-        if (json.nodes) {
-            for (const node of json.nodes) {
-                if (node?.data) {
-                    const foundRoot = node.data.find((item: any) => item && typeof item === 'object' && 'embeds' in item);
-                    if (foundRoot) {
-                        data = node.data;
-                        root = foundRoot;
-                        break;
+            let data: any[] | null = null;
+            let root: any = null;
+
+            if (json.nodes) {
+                for (const node of json.nodes) {
+                    if (node?.data) {
+                        const foundRoot = node.data.find((item: any) => item && typeof item === 'object' && 'embeds' in item);
+                        if (foundRoot) {
+                            data = node.data;
+                            root = foundRoot;
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if (!data || !root) throw new Error("No se encontraron servidores");
+            if (!data || !root) throw new Error("No se encontraron servidores");
 
-        const embedsIndex = root.embeds;
-        const embedsObj = data[embedsIndex];
+            const embedsIndex = root.embeds;
+            const embedsObj = data[embedsIndex];
 
-        const catKey = type.toUpperCase();
+            const catKey = type.toUpperCase();
 
-        const listIndex = embedsObj?.[catKey];
+            const listIndex = embedsObj?.[catKey];
 
-        if (typeof listIndex !== "number") throw new Error(`No hay contenido en ${catKey}`);
+            if (typeof listIndex !== "number") throw new Error(`No hay contenido en ${catKey}`);
 
-        const serverList = data[listIndex];
-        if (!Array.isArray(serverList)) throw new Error("Lista vacía");
+            const serverList = data[listIndex];
+            if (!Array.isArray(serverList)) throw new Error("Lista vacía");
 
-        let chosen: VideoSource | null = null;
+            let chosen: VideoSource | null = null;
 
-        for (const ptr of serverList) {
-            const srv = data[ptr];
-            if (!srv) continue;
-            const serverName = data[srv.server];
-            const link = data[srv.url];
+            for (const ptr of serverList) {
+                const srv = data[ptr];
+                if (!srv) continue;
+                const serverName = data[srv.server];
+                const link = data[srv.url];
 
-            if (!serverName || !link) continue;
+                if (!serverName || !link) continue;
 
-            if (serverName === "HLS") {
-                chosen = {
-                    url: link.replace("/play/", "/m3u8/"),
-                    type: "m3u8",
-                    quality: "auto",
-                    subtitles: [],
-                };
-                break;
+                if (serverName === "HLS") {
+                    chosen = {
+                        url: link.replace("/play/", "/m3u8/"),
+                        type: "m3u8",
+                        quality: "auto",
+                        subtitles: [],
+                    };
+                    break;
+                }
             }
+
+            if (!chosen) throw new Error(`No se encontró stream HLS para ${type}`);
+
+            return {
+                server: "HLS",
+                headers: { Referer: "null", "Sec-Fetch-Site": "same-origin" },
+                videoSources: [chosen]
+            };
+        } catch (err) {
+            if (err instanceof Error && err.name === "AbortError") {
+                throw new Error("Tiempo de espera agotado obteniendo servidores");
+            }
+            throw err;
         }
-
-        if (!chosen) throw new Error(`No se encontró stream HLS para ${type}`);
-
-        return {
-            server: "HLS",
-            headers: { Referer: "null", "Sec-Fetch-Site": "same-origin" },
-            videoSources: [chosen]
-        };
     }
 }
