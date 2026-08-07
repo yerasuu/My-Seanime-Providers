@@ -11,14 +11,38 @@ class Provider {
         };
     }
 
-    private async fetchWithTimeout(url: string, timeoutMs: number = 10000): Promise<Response> {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-            return await fetch(url, { signal: controller.signal });
-        } finally {
-            clearTimeout(timer);
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    private async fetchWithTimeout(url: string, timeoutMs: number = 10000, retries: number = 2): Promise<Response> {
+        let lastErr: unknown;
+
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+            try {
+                const res = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+
+                if (res.status >= 500 && attempt < retries) {
+                    await this.delay(300 * (attempt + 1) + Math.random() * 200);
+                    continue;
+                }
+
+                return res;
+            } catch (err) {
+                clearTimeout(timer);
+                lastErr = err;
+                if (attempt < retries) {
+                    await this.delay(300 * (attempt + 1) + Math.random() * 200);
+                    continue;
+                }
+            }
         }
+
+        throw lastErr;
     }
 
     private _resolveRemixData(json: any, isDub: boolean): SearchResult[] {
