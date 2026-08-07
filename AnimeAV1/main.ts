@@ -11,38 +11,25 @@ class Provider {
         };
     }
 
-    private delay(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    private async fetchWithTimeout(url: string, timeoutMs: number = 10000, retries: number = 2): Promise<Response> {
-        let lastErr: unknown;
+    // El runtime de Seanime no expone AbortController ni setTimeout.
+    // fetch acepta `timeout` (segundos) y ya aborta solo, así que no hace falta nada más.
+    private async fetchWithRetry(url: string, retries: number = 2): Promise<Response> {
+        let lastErr: unknown = null;
 
         for (let attempt = 0; attempt <= retries; attempt++) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-
             try {
-                const res = await fetch(url, { signal: controller.signal });
-                clearTimeout(timer);
+                const res = await fetch(url, { timeout: 15 });
 
-                if (res.status >= 500 && attempt < retries) {
-                    await this.delay(300 * (attempt + 1) + Math.random() * 200);
-                    continue;
-                }
+                // 5xx suele ser un fallo transitorio del backend: reintentar.
+                if (res.status >= 500 && attempt < retries) continue;
 
                 return res;
             } catch (err) {
-                clearTimeout(timer);
                 lastErr = err;
-                if (attempt < retries) {
-                    await this.delay(300 * (attempt + 1) + Math.random() * 200);
-                    continue;
-                }
             }
         }
 
-        throw lastErr;
+        throw lastErr ?? new Error(`No se pudo conectar con ${url}`);
     }
 
     private _resolveRemixData(json: any, isDub: boolean): SearchResult[] {
@@ -97,7 +84,7 @@ class Provider {
         const url = `${this.baseUrl}/catalogo/__data.json?${params.toString()}`;
 
         try {
-            const response = await this.fetchWithTimeout(url);
+            const response = await this.fetchWithRetry(url);
             if (!response.ok) return [];
             const json = await response.json();
 
@@ -125,7 +112,7 @@ class Provider {
         const url = `${this.baseUrl}/media/${slug}/__data.json`;
 
         try {
-            const res = await this.fetchWithTimeout(url);
+            const res = await this.fetchWithRetry(url);
             if (!res.ok) throw new Error("Error fetching episodes");
 
             const json = await res.json();
@@ -206,7 +193,7 @@ class Provider {
     }
 
     private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
-        const res = await this.fetchWithTimeout(embedUrl);
+        const res = await this.fetchWithRetry(embedUrl);
         if (!res.ok) return null;
         const html = await res.text();
 
@@ -240,7 +227,7 @@ class Provider {
         const pageUrl = `${this.baseUrl}/media/${slug}/${number}/__data.json`;
 
         try {
-            const res = await this.fetchWithTimeout(pageUrl);
+            const res = await this.fetchWithRetry(pageUrl);
             if (!res.ok) throw new Error("Error obteniendo datos");
             const json = await res.json();
 
@@ -320,9 +307,7 @@ class Provider {
                 videoSources: [chosen]
             };
         } catch (err) {
-            if (err instanceof Error && err.name === "AbortError") {
-                throw new Error("Tiempo de espera agotado obteniendo servidores");
-            }
+            console.error('Error finding episode server:', err);
             throw err;
         }
     }
