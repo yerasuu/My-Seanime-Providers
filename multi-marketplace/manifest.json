@@ -1,0 +1,30 @@
+{
+  "id": "multi-marketplace4",
+  "name": "Multi-Marketplace",
+  "description": "Browse and manage extensions from several community marketplaces at once, instead of switching Seanime's single Marketplace URL back and forth.",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/manifest.json",
+  "version": "1.0.4",
+  "author": "yerasuu",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/icon.svg",
+  "type": "plugin",
+  "language": "typescript",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/main.ts",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": ["storage", "extensions"],
+      "allow": {
+        "networkAccess": {
+          "allowedDomains": ["raw.githubusercontent.com", "*.githubusercontent.com"],
+          "reasoning": "Fetches extension catalog JSON files from several community marketplace repositories hosted on GitHub, so they can all be browsed from one tray instead of switching Seanime's single Marketplace URL setting."
+        },
+        "unsafeFlags": [
+          {
+            "flag": "dom-script-manipulation",
+            "reason": "Best-effort: attaches an extra click listener to the native 'Change repository' button so it also opens this plugin's tray. Never removes or replaces the native handler; if the button can't be found the plugin still works standalone from its tray icon."
+          }
+        ]
+      }
+    }
+  }
+}
