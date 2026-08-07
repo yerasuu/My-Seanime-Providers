@@ -274,7 +274,10 @@ class Provider {
             const serverList = data[listIndex];
             if (!Array.isArray(serverList)) throw new Error("Lista vacía");
 
+            const requestedServer = (server || "HLS").trim().toUpperCase();
+
             let embedLink: string | null = null;
+            let resolvedServer: string | null = null;
 
             for (const ptr of serverList) {
                 const srv = data[ptr];
@@ -284,18 +287,19 @@ class Provider {
 
                 if (!serverName || !link) continue;
 
-                if (serverName === server) {
+                if (String(serverName).trim().toUpperCase() === requestedServer) {
                     embedLink = link;
+                    resolvedServer = serverName;
                     break;
                 }
             }
 
-            if (!embedLink) throw new Error(`No se encontró servidor ${server} para ${type}`);
+            if (!embedLink || !resolvedServer) throw new Error(`No se encontró servidor ${server} para ${type}`);
 
             let chosen: VideoSource | null = null;
             let headers: { [key: string]: string } = {};
 
-            if (server === "HLS") {
+            if (requestedServer === "HLS") {
                 chosen = {
                     url: embedLink.replace("/play/", "/m3u8/"),
                     type: "m3u8",
@@ -303,15 +307,15 @@ class Provider {
                     subtitles: [],
                 };
                 headers = { Referer: "null", "Sec-Fetch-Site": "same-origin" };
-            } else if (server === "MP4Upload") {
+            } else if (requestedServer === "MP4UPLOAD") {
                 chosen = await this.extractMp4Upload(embedLink);
                 headers = { Referer: "https://www.mp4upload.com/" };
             }
 
-            if (!chosen) throw new Error(`No se pudo extraer el video de ${server}`);
+            if (!chosen) throw new Error(`No se pudo extraer el video de ${resolvedServer}`);
 
             return {
-                server,
+                server: resolvedServer,
                 headers,
                 videoSources: [chosen]
             };
