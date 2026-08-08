@@ -96,6 +96,13 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
+// Words that place an entry in a series without naming it, so a title made of
+// nothing else carries no signal about which show it belongs to.
+const GENERIC_WORDS: { [word: string]: boolean } = {
+    season: true, part: true, cour: true, movie: true, special: true,
+    ova: true, ona: true, tv: true, the: true, final: true,
+};
+
 // Cloudflare turns away player segments (/segs/) that do not look like they
 // came from the player itself: without Sec-Fetch-Site it answers 403, playback
 // stalls and Seanime refetches the source in a loop. Seanime's proxy replays
@@ -206,6 +213,7 @@ class Provider {
             .replace(/[úùüû]/g, "u")
             .replace(/ñ/g, "n")
             .replace(/[^a-z0-9]+/g, " ")
+            .replace(/\b(\d+)(?:st|nd|rd|th)\b/g, "$1")
             .trim();
     }
 
@@ -235,6 +243,24 @@ class Provider {
         }
 
         return hits / words.length;
+    }
+
+    /**
+     * Coverage weighed against how much of the candidate is padding.
+     *
+     * Coverage alone never charges for extra words, so "... the Movie 4: You're
+     * Next" covers "Boku no Hero Academia 4" in full and outranks the season
+     * being looked for. Balancing it against the share of the candidate that
+     * was actually asked for puts the padded entry back behind.
+     */
+    private balancedScore(candidate: string, wanted: string): number {
+        const recall = this.similarity(candidate, wanted);
+        if (recall === 0) return 0;
+
+        const precision = this.similarity(wanted, candidate);
+        if (precision === 0) return 0;
+
+        return (2 * recall * precision) / (recall + precision);
     }
 
     /**
@@ -305,7 +331,7 @@ class Provider {
         for (const result of results) {
             let score = 0;
             for (const title of titles) {
-                const value = this.similarity(result.title, title);
+                const value = this.balancedScore(result.title, title);
                 if (value > score) score = value;
             }
 
@@ -318,7 +344,10 @@ class Provider {
             }
         }
 
-        if (best && bestScore >= 0.6 && bestScore - runnerUp >= 0.05) return [best];
+        // Thresholds are for the balanced score, which runs lower than plain
+        // coverage: a right-but-wordier entry sits around 0.57 while its
+        // siblings sit near 0.33. Demand a real gap so ties stay with Seanime.
+        if (best && bestScore >= 0.5 && bestScore - runnerUp >= 0.08) return [best];
 
         return results;
     }
@@ -333,8 +362,25 @@ class Provider {
     private mediaTitles(media?: Media): string[] {
         if (!media) return [];
 
-        const titles = [media.romajiTitle, media.englishTitle, ...(media.synonyms || [])];
+        return this.usableTitles([media.romajiTitle, media.englishTitle, ...(media.synonyms || [])]);
+    }
 
+    /**
+     * The titles that name this entry, as opposed to the series around it.
+     *
+     * Scoring has to stay off the numbered synonyms. Honzuki's fourth season
+     * carries "... Erandeiraremasen 4th Season", which shares its long prefix
+     * with every entry in the series and therefore rates whichever of them is
+     * shortest, the recap, above the season that actually goes by a subtitle.
+     * Those synonyms still make good extra search queries.
+     */
+    private primaryTitles(media?: Media): string[] {
+        if (!media) return [];
+
+        return this.usableTitles([media.romajiTitle, media.englishTitle]);
+    }
+
+    private usableTitles(titles: (string | undefined)[]): string[] {
         return titles.filter((title): title is string => {
             if (typeof title !== "string" || title.trim() === "") return false;
 
@@ -344,7 +390,11 @@ class Provider {
             const latin = stripped.replace(/[^a-zA-Z0-9]/g, "").length;
             if (latin / stripped.length < 0.7) return false;
 
-            return this.normalize(title).split(" ").filter(Boolean).length >= 2;
+            // Keep single-word titles: plenty of shows are just "Jigokuraku".
+            // What has to go is a title left with nothing but numbering, which
+            // is what a foreign one decays into once its own script is gone.
+            const words = this.normalize(title).split(" ").filter(Boolean);
+            return words.some(w => w.length >= 3 && !GENERIC_WORDS[w]);
         });
     }
 
@@ -375,7 +425,16 @@ class Provider {
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
         const isDub = opts.dub || false;
+        // Every title is fair game as a search query; only the primary ones
+        // are trusted to say which entry we are looking at.
         const titles = this.mediaTitles(opts.media);
+        const primary = this.primaryTitles(opts.media);
+
+        // Overriding Seanime is for series, where the decoy is a neighbouring
+        // season. Films number and romanise themselves however they like -
+        // "Evangelion Shin Movie: Kyuu" is the same film as "Evangelion Movie
+        // 3: Q" - and there is no season to reason about, so leave them alone.
+        const narrow = (opts.media && opts.media.format || "").toUpperCase() !== "MOVIE";
 
         try {
             const results = await this.searchOnce(opts.query, isDub);
@@ -387,8 +446,9 @@ class Provider {
             // resembles what we are after, search again with the other titles.
             if (titles.length === 0) return results;
 
-            if (this.bestScore(results, titles) >= 0.6) {
-                return this.narrowToBest(this.dropOtherSeasons(results, titles), titles);
+            if (this.bestScore(results, primary) >= 0.6) {
+                const kept = this.dropOtherSeasons(results, titles);
+                return narrow ? this.narrowToBest(kept, primary) : kept;
             }
 
             const seen: { [id: string]: boolean } = {};
@@ -414,10 +474,11 @@ class Provider {
                     merged.push(result);
                 }
 
-                if (this.bestScore(merged, titles) >= 0.6) break;
+                if (this.bestScore(merged, primary) >= 0.6) break;
             }
 
-            return this.narrowToBest(this.dropOtherSeasons(merged, titles), titles);
+            const kept = this.dropOtherSeasons(merged, titles);
+            return narrow ? this.narrowToBest(kept, primary) : kept;
         } catch (err) {
             console.error("Error searching AnimeAV1:", err);
             return [];

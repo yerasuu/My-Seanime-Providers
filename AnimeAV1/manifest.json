@@ -1,7 +1,7 @@
 {
   "id": "animeav1test",
   "name": "AnimeAV1 Testing",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/AnimeAV1/manifest.json",
   "language": "typescript",
   "type": "onlinestream-provider",
