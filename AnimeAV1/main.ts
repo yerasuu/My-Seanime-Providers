@@ -444,16 +444,9 @@ class Provider {
      */
     private async searchOnce(query: string, isDub: boolean): Promise<SearchResult[]> {
         const key = `av1:search:${isDub ? "dub" : "sub"}:${this.normalize(query)}`;
-        const store = typeof $store !== "undefined" ? $store : undefined;
 
-        if (store) {
-            try {
-                const hit = store.get<{ at: number; results: SearchResult[] }>(key);
-                if (hit && hit.results && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.results;
-            } catch (err) {
-                // A store that misbehaves must not take the search down with it.
-            }
-        }
+        const cached = this.remember<SearchResult[]>(key);
+        if (cached) return cached;
 
         const params = new URLSearchParams();
         params.append("page", "1");
@@ -464,16 +457,33 @@ class Provider {
         if (!res.ok) return [];
 
         const results = this._resolveRemixData(res.json(), isDub);
-
-        if (store) {
-            try {
-                store.set(key, { at: Date.now(), results });
-            } catch (err) {
-                // Not being able to cache is not a reason to fail.
-            }
-        }
+        this.keep(key, results);
 
         return results;
+    }
+
+    /** Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there. */
+    private remember<T>(key: string): T | undefined {
+        if (typeof $store === "undefined" || !$store) return undefined;
+
+        try {
+            const hit = $store.get<{ at: number; value: T }>(key);
+            if (hit && hit.value && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.value;
+        } catch (err) {
+            // A store that misbehaves must not take the search down with it.
+        }
+
+        return undefined;
+    }
+
+    private keep(key: string, value: any): void {
+        if (typeof $store === "undefined" || !$store) return;
+
+        try {
+            $store.set(key, { at: Date.now(), value });
+        } catch (err) {
+            // Not being able to cache is not a reason to fail.
+        }
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
@@ -489,6 +499,18 @@ class Provider {
         // 3: Q" - and there is no season to reason about, so leave them alone.
         const narrow = (opts.media && opts.media.format || "").toUpperCase() !== "MOVIE";
 
+        // Seanime searches the same anime twice, once per title, and merges the
+        // two lists by id. animeav1 drops roughly one connection in six and a
+        // dropped one hangs for a quarter of a minute before it gives up, so
+        // the second search is mostly another chance to stall. Answer it from
+        // what the first one worked out.
+        const cacheKey = opts.media && opts.media.id
+            ? `av1:media:${opts.media.id}:${isDub ? "dub" : "sub"}`
+            : "";
+
+        const cached = cacheKey ? this.remember<SearchResult[]>(cacheKey) : undefined;
+        if (cached) return cached;
+
         try {
             const results = await this.searchOnce(opts.query, isDub);
 
@@ -501,7 +523,9 @@ class Provider {
 
             if (this.bestScore(results, primary) >= 0.6) {
                 const kept = this.dropOtherSeasons(results, titles);
-                return narrow ? this.narrowToBest(kept, primary) : kept;
+                const picked = narrow ? this.narrowToBest(kept, primary) : kept;
+                if (cacheKey) this.keep(cacheKey, picked);
+                return picked;
             }
 
             const seen: { [id: string]: boolean } = {};
@@ -531,7 +555,9 @@ class Provider {
             }
 
             const kept = this.dropOtherSeasons(merged, titles);
-            return narrow ? this.narrowToBest(kept, primary) : kept;
+            const picked = narrow ? this.narrowToBest(kept, primary) : kept;
+            if (cacheKey) this.keep(cacheKey, picked);
+            return picked;
         } catch (err) {
             console.error("Error searching AnimeAV1:", err);
             return [];
