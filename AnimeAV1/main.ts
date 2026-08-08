@@ -108,6 +108,10 @@ declare const $store: {
 // that just added an entry is not hidden for long.
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
+// How long a request may have been going before retrying stops being worth it.
+// Comfortably above a refused connection, far below a hung one.
+const RETRY_BUDGET_MS = 8000;
+
 // Words that place an entry in a series without naming it, so a title made of
 // nothing else carries no signal about which show it belongs to.
 const GENERIC_WORDS: { [word: string]: boolean } = {
@@ -153,6 +157,7 @@ class Provider {
     // does nothing because of the type mismatch noted above: every request runs
     // to the 35s default, so retries are worth keeping few.
     private async fetchWithRetry(url: string, retries: number = 2): Promise<FetchResponse> {
+        const started = Date.now();
         let lastErr: unknown = null;
 
         for (let attempt = 0; attempt <= retries; attempt++) {
@@ -160,11 +165,23 @@ class Provider {
                 const res = await fetch(url, { timeout: 15 });
 
                 // animeav1's 5xx responses are usually transient, so retry.
-                if (res.status >= 500 && attempt < retries) continue;
+                if (res.status >= 500 && attempt < retries && Date.now() - started < RETRY_BUDGET_MS) {
+                    continue;
+                }
 
                 return res;
             } catch (err) {
                 lastErr = err;
+
+                // animeav1 refuses roughly one connection in six. A refusal
+                // comes back in well under a second and the next attempt
+                // usually lands, which is worth doing. A request that instead
+                // hangs holds the line until fetch gives up on it 35s later,
+                // and since the timeout option never takes effect there is no
+                // way to cut that short - trying again just spends another 35s
+                // on a host that is clearly not answering. One episode list
+                // took Seanime 1m13s that way. Spent time tells the two apart.
+                if (Date.now() - started >= RETRY_BUDGET_MS) break;
             }
         }
 
