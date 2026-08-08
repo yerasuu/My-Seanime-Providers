@@ -66,7 +66,7 @@ $ui.register((ctx) => {
 
     const tray = ctx.newTray({
         tooltipText: "Multi-Marketplace",
-        iconUrl: "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/icon.svg",
+        iconUrl: "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/icon.svg",
         withContent: true,
         isDrawer: true,
     });
@@ -216,18 +216,28 @@ $ui.register((ctx) => {
         refresh();
     }
 
-    function enableExtension(id: string) {
+    // enable/disable devuelven Promise<boolean>: sin await el catch nunca se
+    // dispara y el fallo queda como unhandled rejection.
+    async function enableExtension(id: string) {
         try {
-            ctx.extensions.enable(id);
+            const ok = await ctx.extensions.enable(id);
+            if (!ok) {
+                ctx.toast.alert(`${id} is not installed yet, install it in Seanime first`);
+                return;
+            }
             ctx.toast.success(`Enabled ${id}`);
         } catch (e) {
             ctx.toast.alert(`${id} is not installed yet, install it in Seanime first`);
         }
     }
 
-    function disableExtension(id: string) {
+    async function disableExtension(id: string) {
         try {
-            ctx.extensions.disable(id);
+            const ok = await ctx.extensions.disable(id);
+            if (!ok) {
+                ctx.toast.alert(`${id} is not installed yet`);
+                return;
+            }
             ctx.toast.info(`Disabled ${id}`);
         } catch (e) {
             ctx.toast.alert(`${id} is not installed yet`);

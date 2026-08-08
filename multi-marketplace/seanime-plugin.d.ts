@@ -7,6 +7,8 @@ interface FieldRef<T> {
 }
 
 interface StateHandle<T> {
+    /** Valor actual. */
+    value: T;
     get(): T;
     set(value: T | ((prev: T) => T)): void;
 }
@@ -51,8 +53,13 @@ interface TrayHandle {
 interface FetchResponse {
     ok: boolean;
     status: number;
-    json(): Promise<any>;
-    text(): Promise<string>;
+    statusText: string;
+    url: string;
+    headers: Record<string, string>;
+    /** Síncrono: el runtime ya leyó el body entero. */
+    json<T = any>(): T;
+    /** Síncrono. */
+    text(): string;
 }
 
 interface PluginContext {
@@ -67,13 +74,16 @@ interface PluginContext {
         success(msg: string): void;
     };
     extensions: {
-        enable(id: string): void;
-        disable(id: string): void;
-        setDisabled(id: string, disabled: boolean): void;
+        enable(id: string): Promise<boolean>;
+        disable(id: string): Promise<boolean>;
+        setDisabled(id: string, disabled: boolean): Promise<boolean>;
     };
-    registerEventHandler(name: string, fn: (...args: any[]) => void): void;
-    eventHandler(id: string, fn: (...args: any[]) => void): string;
-    setInterval(fn: () => void, ms: number): any;
+    /** Devuelve la función para desregistrar el handler. */
+    registerEventHandler(eventName: string, fn: (event: any) => void): () => void;
+    eventHandler(uniqueKey: string, fn: (event: any) => void): string;
+    /** Devuelve la función para cancelar el intervalo. */
+    setInterval(fn: () => void, delay: number): () => void;
+    setTimeout(fn: () => void, delay: number): () => void;
     dom?: DomApi;
 }
 
@@ -99,9 +109,12 @@ declare const $ui: {
 };
 
 declare const $storage: {
-    get<T>(key: string): T | undefined;
+    get<T = any>(key: string): T | undefined;
+    getUnsafe<T = any>(key: string): T | undefined;
     set(key: string, value: any): void;
     has(key: string): boolean;
+    keys(): string[];
     remove(key: string): void;
-    watch<T>(key: string, cb: (value: T) => void): void;
+    clear(): void;
+    drop(): void;
 };

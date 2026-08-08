@@ -2,13 +2,13 @@
   "id": "multi-marketplace4",
   "name": "Multi-Marketplace",
   "description": "Browse and manage extensions from several community marketplaces at once, instead of switching Seanime's single Marketplace URL back and forth.",
-  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/manifest.json",
-  "version": "1.0.4",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/manifest.json",
+  "version": "1.0.5",
   "author": "yerasuu",
-  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/icon.svg",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/icon.svg",
   "type": "plugin",
   "language": "typescript",
-  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/multi-marketplace/main.ts",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/main.ts",
   "plugin": {
     "version": "1",
     "permissions": {
