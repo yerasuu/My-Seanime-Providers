@@ -196,21 +196,116 @@ class Provider {
         return [];
     }
 
-    async search(opts: SearchOptions): Promise<SearchResult[]> {
+    /** Minúsculas, sin acentos ni signos, para comparar títulos. */
+    private normalize(value: string): string {
+        return value
+            .toLowerCase()
+            .replace(/[áàäâã]/g, "a")
+            .replace(/[éèëê]/g, "e")
+            .replace(/[íìïî]/g, "i")
+            .replace(/[óòöôõ]/g, "o")
+            .replace(/[úùüû]/g, "u")
+            .replace(/ñ/g, "n")
+            .replace(/[^a-z0-9]+/g, " ")
+            .trim();
+    }
+
+    /** Parecido por solapamiento de palabras (Dice). Barato y suficiente. */
+    private similarity(a: string, b: string): number {
+        const x = this.normalize(a).split(" ").filter(Boolean);
+        const y = this.normalize(b).split(" ").filter(Boolean);
+        if (x.length === 0 || y.length === 0) return 0;
+
+        const pool = y.slice();
+        let hits = 0;
+
+        for (const word of x) {
+            const at = pool.indexOf(word);
+            if (at !== -1) {
+                hits++;
+                pool.splice(at, 1);
+            }
+        }
+
+        return (2 * hits) / (x.length + y.length);
+    }
+
+    /** Todos los títulos que Seanime conoce de la obra. */
+    private mediaTitles(media?: Media): string[] {
+        if (!media) return [];
+
+        const titles = [media.romajiTitle, media.englishTitle, ...(media.synonyms || [])];
+        return titles.filter((t): t is string => typeof t === "string" && t.trim() !== "");
+    }
+
+    private bestScore(results: SearchResult[], titles: string[]): number {
+        let best = 0;
+
+        for (const result of results) {
+            for (const title of titles) {
+                const score = this.similarity(result.title, title);
+                if (score > best) best = score;
+            }
+        }
+
+        return best;
+    }
+
+    private async searchOnce(query: string, isDub: boolean): Promise<SearchResult[]> {
         const params = new URLSearchParams();
         params.append("page", "1");
 
-        if (opts.query && opts.query.trim() !== "") {
-            params.append("search", opts.query);
-        }
+        if (query && query.trim() !== "") params.append("search", query);
 
-        const url = `${this.baseUrl}/catalogo/__data.json?${params.toString()}`;
+        const res = await this.fetchWithRetry(`${this.baseUrl}/catalogo/__data.json?${params.toString()}`);
+        if (!res.ok) return [];
+
+        return this._resolveRemixData(res.json(), isDub);
+    }
+
+    async search(opts: SearchOptions): Promise<SearchResult[]> {
+        const isDub = opts.dub || false;
+        const titles = this.mediaTitles(opts.media);
 
         try {
-            const res = await this.fetchWithRetry(url);
-            if (!res.ok) return [];
+            const results = await this.searchOnce(opts.query, isDub);
 
-            return this._resolveRemixData(res.json(), opts.dub || false);
+            // El catálogo está titulado en romaji, así que buscar por el título
+            // en inglés suele devolver 20 resultados sin relación. Seanime elige
+            // por distancia mínima sin umbral, o sea que con solo basura en la
+            // lista acaba escogiendo la obra equivocada en silencio. Si nada se
+            // parece a lo que buscamos, reintentamos con los otros títulos.
+            if (titles.length === 0 || this.bestScore(results, titles) >= 0.6) {
+                return results;
+            }
+
+            const seen: { [id: string]: boolean } = {};
+            const merged: SearchResult[] = [];
+
+            for (const result of results) {
+                if (seen[result.id]) continue;
+                seen[result.id] = true;
+                merged.push(result);
+            }
+
+            const tried = [this.normalize(opts.query)];
+
+            for (const title of titles.slice(0, 3)) {
+                const key = this.normalize(title);
+                if (tried.indexOf(key) !== -1) continue;
+                tried.push(key);
+
+                const extra = await this.searchOnce(title, isDub);
+                for (const result of extra) {
+                    if (seen[result.id]) continue;
+                    seen[result.id] = true;
+                    merged.push(result);
+                }
+
+                if (this.bestScore(merged, titles) >= 0.6) break;
+            }
+
+            return merged;
         } catch (err) {
             console.error("Error searching AnimeAV1:", err);
             return [];
