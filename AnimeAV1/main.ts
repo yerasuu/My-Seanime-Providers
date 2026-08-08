@@ -1,8 +1,108 @@
-// <reference path="../online-streaming-provider.d.ts" />
+// Tipos del contrato de Seanime para providers de onlinestream.
+// Se declaran aquí porque el runtime los provee: esbuild los borra al transpilar
+// y así el archivo es autocontenido (no hay .d.ts que referenciar en el repo).
 
+declare type SubOrDub = "sub" | "dub" | "both";
+
+declare type VideoSourceType = "mp4" | "m3u8" | "unknown";
+
+declare interface Settings {
+    episodeServers: string[];
+    supportsDub: boolean;
+}
+
+declare interface FuzzyDate {
+    year: number;
+    month?: number;
+    day?: number;
+}
+
+declare interface Media {
+    id: number;
+    idMal?: number;
+    status?: string;
+    format?: string;
+    englishTitle?: string;
+    romajiTitle?: string;
+    episodeCount?: number;
+    synonyms: string[];
+    isAdult: boolean;
+    startDate?: FuzzyDate;
+}
+
+declare interface SearchOptions {
+    media: Media;
+    query: string;
+    dub: boolean;
+    year?: number;
+}
+
+declare interface SearchResult {
+    id: string;
+    title: string;
+    url: string;
+    subOrDub: SubOrDub;
+}
+
+declare interface EpisodeDetails {
+    id: string;
+    number: number;
+    url: string;
+    title?: string;
+}
+
+declare interface VideoSubtitle {
+    id: string;
+    url: string;
+    language: string;
+    isDefault: boolean;
+}
+
+declare interface VideoSource {
+    url: string;
+    type: VideoSourceType;
+    quality: string;
+    label?: string;
+    subtitles: VideoSubtitle[];
+}
+
+declare interface EpisodeServer {
+    server: string;
+    headers: { [key: string]: string };
+    videoSources: VideoSource[];
+}
+
+declare interface FetchOptions {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: any;
+    noCloudflareBypass?: boolean;
+    redirect?: "follow" | "manual" | "error";
+    /** Timeout en segundos. Por defecto 35. */
+    timeout?: number;
+}
+
+declare interface FetchResponse {
+    status: number;
+    statusText: string;
+    ok: boolean;
+    url: string;
+    headers: Record<string, string>;
+
+    text(): string;
+
+    json<T = any>(): T;
+}
+
+declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
+
+/**
+ * AnimeAV1 usa SvelteKit, así que cada página expone su estado en `__data.json`.
+ * Ese JSON viene serializado con devalue: `data` es un array plano donde los
+ * objetos guardan índices en vez de valores, y hay que ir resolviendo punteros.
+ */
 class Provider {
-    baseUrl = "https://animeav1.com";
-    cdnUrl = "https://cdn.animeav1.com";
+    private baseUrl = "https://animeav1.com";
 
     getSettings(): Settings {
         return {
@@ -11,16 +111,16 @@ class Provider {
         };
     }
 
-    // El runtime de Seanime no expone AbortController ni setTimeout.
-    // fetch acepta `timeout` (segundos) y ya aborta solo, así que no hace falta nada más.
-    private async fetchWithRetry(url: string, retries: number = 2): Promise<Response> {
+    // El runtime no expone AbortController ni setTimeout: fetch ya corta solo
+    // con la opción `timeout` (en segundos).
+    private async fetchWithRetry(url: string, retries: number = 2): Promise<FetchResponse> {
         let lastErr: unknown = null;
 
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
                 const res = await fetch(url, { timeout: 15 });
 
-                // 5xx suele ser un fallo transitorio del backend: reintentar.
+                // Los 5xx de animeav1 suelen ser transitorios: reintentar.
                 if (res.status >= 500 && attempt < retries) continue;
 
                 return res;
@@ -32,6 +132,10 @@ class Provider {
         throw lastErr ?? new Error(`No se pudo conectar con ${url}`);
     }
 
+    private buildAnimeId(slug: string, isDub: boolean): string {
+        return JSON.stringify({ slug, type: isDub ? "dub" : "sub" });
+    }
+
     private _resolveRemixData(json: any, isDub: boolean): SearchResult[] {
         if (!json || !json.nodes) return [];
 
@@ -41,72 +145,67 @@ class Provider {
                 if (!data || data.length === 0) continue;
 
                 const rootConfig = data[0];
-                if (!rootConfig || typeof rootConfig.results !== 'number') continue;
+                if (!rootConfig || typeof rootConfig.results !== "number") continue;
 
-                const resultsIndex = rootConfig.results;
-                const animePointers = data[resultsIndex];
-
+                const animePointers = data[rootConfig.results];
                 if (!Array.isArray(animePointers)) continue;
 
-                return animePointers.map((pointer: number) => {
-                    const rawObj = data[pointer];
-                    if (!rawObj) return null;
+                const results: SearchResult[] = [];
 
-                    const realId = data[rawObj.id];
+                for (const pointer of animePointers) {
+                    const rawObj = data[pointer];
+                    if (!rawObj) continue;
+
                     const title = data[rawObj.title];
                     const slug = data[rawObj.slug];
+                    if (!title || !slug) continue;
 
-                    if (!title || !slug) return null;
-
-                    const idPayload = JSON.stringify({ slug: slug, type: isDub ? "dub" : "sub" });
-
-                    return {
-                        id: idPayload,
-                        title: title,
+                    results.push({
+                        id: this.buildAnimeId(slug, isDub),
+                        title,
                         url: `${this.baseUrl}/media/${slug}`,
-                        image: realId ? `${this.cdnUrl}/covers/${realId}.jpg` : undefined,
-                        subOrDub: isDub ? "dub" : "sub"
-                    };
-                }).filter(Boolean) as SearchResult[];
+                        subOrDub: isDub ? "dub" : "sub",
+                    });
+                }
+
+                return results;
             }
         }
+
         return [];
     }
 
-    async search(query: SearchOptions): Promise<SearchResult[]> {
+    async search(opts: SearchOptions): Promise<SearchResult[]> {
         const params = new URLSearchParams();
-        params.append('page', '1');
+        params.append("page", "1");
 
-        if (query.query && query.query.trim() !== "") {
-            params.append('search', query.query);
+        if (opts.query && opts.query.trim() !== "") {
+            params.append("search", opts.query);
         }
 
         const url = `${this.baseUrl}/catalogo/__data.json?${params.toString()}`;
 
         try {
-            const response = await this.fetchWithRetry(url);
-            if (!response.ok) return [];
-            const json = await response.json();
+            const res = await this.fetchWithRetry(url);
+            if (!res.ok) return [];
 
-            return this._resolveRemixData(json, query.dub || false);
-        } catch (error) {
-            console.error("Error searching AnimeAV1:", error);
+            return this._resolveRemixData(res.json(), opts.dub || false);
+        } catch (err) {
+            console.error("Error searching AnimeAV1:", err);
             return [];
         }
     }
 
-    async findEpisodes(animeId: string): Promise<EpisodeDetails[]> {
-
+    async findEpisodes(id: string): Promise<EpisodeDetails[]> {
         let slug: string;
-        let type: "sub" | "dub" = "sub";
+        let type: SubOrDub = "sub";
 
         try {
-            const parsed = JSON.parse(animeId);
+            const parsed = JSON.parse(id);
             slug = parsed.slug;
             if (parsed.type) type = parsed.type;
         } catch {
-
-            slug = animeId;
+            slug = id;
         }
 
         const url = `${this.baseUrl}/media/${slug}/__data.json`;
@@ -115,26 +214,26 @@ class Provider {
             const res = await this.fetchWithRetry(url);
             if (!res.ok) throw new Error("Error fetching episodes");
 
-            const json = await res.json();
+            const json = res.json();
             const nodes = json.nodes || [];
 
             let data: any[] | null = null;
             let mediaDescriptor: any = null;
 
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
+            for (const node of nodes) {
                 if (!node?.data) continue;
 
                 for (const obj of node.data) {
-                    if (obj && typeof obj === 'object' && 'slug' in obj && 'episodes' in obj) {
+                    if (obj && typeof obj === "object" && "slug" in obj && "episodes" in obj) {
                         const slugPointer = obj.slug;
-                        if (typeof slugPointer === 'number' && node.data[slugPointer] === slug) {
+                        if (typeof slugPointer === "number" && node.data[slugPointer] === slug) {
                             data = node.data;
                             mediaDescriptor = obj;
                             break;
                         }
                     }
                 }
+
                 if (data) break;
             }
 
@@ -143,61 +242,48 @@ class Provider {
             const episodeIndexes = data[mediaDescriptor.episodes];
             if (!Array.isArray(episodeIndexes)) throw new Error("Lista inválida");
 
-            const mediaId = data[mediaDescriptor.id];
-            const image = mediaId ? `${this.cdnUrl}/backdrops/${mediaId}.jpg` : undefined;
+            const episodes: EpisodeDetails[] = [];
 
-            return episodeIndexes
-                .map((epIdx: number, i: number) => {
-                    const ep = data![epIdx];
+            episodeIndexes.forEach((epIdx: number, i: number) => {
+                const ep = data![epIdx];
+                if (!ep) return;
 
-                    let realNumber = i + 1;
+                let number = i + 1;
+                if (typeof ep.number === "number") {
+                    const resolved = data![ep.number];
+                    if (typeof resolved === "number") number = resolved;
+                }
 
-                    if (typeof ep.number === 'number') {
-                        const resolvedNum = data![ep.number];
+                if (!Number.isInteger(number) || number <= 0) return;
 
-                        if (typeof resolvedNum === 'number') {
-                            realNumber = resolvedNum;
-                        }
-                    }
+                let title = `Episodio ${number}`;
+                if (typeof ep.title === "number") {
+                    title = data![ep.title];
+                } else if (ep.title) {
+                    title = ep.title;
+                }
 
-                    if (!Number.isInteger(realNumber) || realNumber <= 0) return null;
+                episodes.push({
+                    id: JSON.stringify({ slug, number, type }),
+                    number,
+                    title,
+                    url: `${this.baseUrl}/media/${slug}/${number}`,
+                });
+            });
 
-                    let realTitle = `Episodio ${realNumber}`;
-
-                    if (typeof ep.title === 'number') {
-                        realTitle = data![ep.title];
-                    } else if (ep.title) {
-                        realTitle = ep.title;
-                    }
-
-                    const episodeIdPayload = JSON.stringify({
-                        slug,
-                        number: realNumber,
-                        type
-                    });
-
-                    return {
-                        id: episodeIdPayload,
-                        number: realNumber,
-                        title: realTitle,
-                        url: `${this.baseUrl}/media/${slug}/${realNumber}`,
-                        image
-                    };
-                })
-                .filter(Boolean) as EpisodeDetails[];
-
+            return episodes;
         } catch (err) {
-            console.error('Error finding episodes:', err);
+            console.error("Error finding episodes:", err);
             return [];
         }
     }
 
+    /** MP4Upload deja el mp4 directo en el HTML del embed, sin ofuscar. */
     private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
         const res = await this.fetchWithRetry(embedUrl);
         if (!res.ok) return null;
-        const html = await res.text();
 
-        const match = html.match(/src:\s*"([^"]+\.mp4[^"]*)"/);
+        const match = res.text().match(/src:\s*"([^"]+\.mp4[^"]*)"/);
         if (!match) return null;
 
         return {
@@ -208,106 +294,106 @@ class Provider {
         };
     }
 
-    async findEpisodeServer(episodeOrId: any, server: string): Promise<EpisodeServer> {
+    async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
+        // Seanime manda el EpisodeDetails completo, pero aceptamos el id suelto por si acaso.
+        const rawId = typeof episode === "string" ? episode : episode.id;
+
         let slug: string;
         let number: number;
-        let type: string = "sub";
-
-        const idStr = typeof episodeOrId === "string" ? episodeOrId : episodeOrId.id;
+        let type: SubOrDub = "sub";
 
         try {
-            const parsed = JSON.parse(idStr);
+            const parsed = JSON.parse(rawId);
             slug = parsed.slug;
             number = parsed.number;
             if (parsed.type) type = parsed.type;
-        } catch (e) {
+        } catch {
             throw new Error("ID inválido");
         }
 
-        const pageUrl = `${this.baseUrl}/media/${slug}/${number}/__data.json`;
+        const url = `${this.baseUrl}/media/${slug}/${number}/__data.json`;
 
         try {
-            const res = await this.fetchWithRetry(pageUrl);
+            const res = await this.fetchWithRetry(url);
             if (!res.ok) throw new Error("Error obteniendo datos");
-            const json = await res.json();
+
+            const json = res.json();
 
             let data: any[] | null = null;
             let root: any = null;
 
-            if (json.nodes) {
-                for (const node of json.nodes) {
-                    if (node?.data) {
-                        const foundRoot = node.data.find((item: any) => item && typeof item === 'object' && 'embeds' in item);
-                        if (foundRoot) {
-                            data = node.data;
-                            root = foundRoot;
-                            break;
-                        }
-                    }
+            for (const node of json?.nodes || []) {
+                if (!node?.data) continue;
+
+                const found = node.data.find(
+                    (item: any) => item && typeof item === "object" && "embeds" in item
+                );
+
+                if (found) {
+                    data = node.data;
+                    root = found;
+                    break;
                 }
             }
 
             if (!data || !root) throw new Error("No se encontraron servidores");
 
-            const embedsIndex = root.embeds;
-            const embedsObj = data[embedsIndex];
-
-            const catKey = type.toUpperCase();
-
-            const listIndex = embedsObj?.[catKey];
-
-            if (typeof listIndex !== "number") throw new Error(`No hay contenido en ${catKey}`);
+            const category = type.toUpperCase();
+            const listIndex = data[root.embeds]?.[category];
+            if (typeof listIndex !== "number") throw new Error(`No hay contenido en ${category}`);
 
             const serverList = data[listIndex];
             if (!Array.isArray(serverList)) throw new Error("Lista vacía");
 
-            const requestedServer = (server || "HLS").trim().toUpperCase();
+            const wanted = (server || "HLS").trim().toUpperCase();
 
-            let embedLink: string | null = null;
-            let resolvedServer: string | null = null;
+            let embedUrl: string | null = null;
+            let serverName: string | null = null;
 
             for (const ptr of serverList) {
-                const srv = data[ptr];
-                if (!srv) continue;
-                const serverName = data[srv.server];
-                const link = data[srv.url];
+                const entry = data[ptr];
+                if (!entry) continue;
 
-                if (!serverName || !link) continue;
+                const name = data[entry.server];
+                const link = data[entry.url];
+                if (!name || !link) continue;
 
-                if (String(serverName).trim().toUpperCase() === requestedServer) {
-                    embedLink = link;
-                    resolvedServer = serverName;
+                if (String(name).trim().toUpperCase() === wanted) {
+                    embedUrl = link;
+                    serverName = name;
                     break;
                 }
             }
 
-            if (!embedLink || !resolvedServer) throw new Error(`No se encontró servidor ${server} para ${type}`);
+            if (!embedUrl || !serverName) {
+                throw new Error(`No se encontró servidor ${server} para ${type}`);
+            }
 
-            let chosen: VideoSource | null = null;
+            let source: VideoSource | null = null;
             let headers: { [key: string]: string } = {};
 
-            if (requestedServer === "HLS") {
-                chosen = {
-                    url: embedLink.replace("/play/", "/m3u8/"),
+            if (wanted === "HLS") {
+                source = {
+                    url: embedUrl.replace("/play/", "/m3u8/"),
                     type: "m3u8",
                     quality: "auto",
                     subtitles: [],
                 };
                 headers = { Referer: "null", "Sec-Fetch-Site": "same-origin" };
-            } else if (requestedServer === "MP4UPLOAD") {
-                chosen = await this.extractMp4Upload(embedLink);
+            } else if (wanted === "MP4UPLOAD") {
+                source = await this.extractMp4Upload(embedUrl);
                 headers = { Referer: "https://www.mp4upload.com/" };
             }
 
-            if (!chosen) throw new Error(`No se pudo extraer el video de ${resolvedServer}`);
+            if (!source) throw new Error(`No se pudo extraer el video de ${serverName}`);
 
             return {
-                server: resolvedServer,
+                server: serverName,
                 headers,
-                videoSources: [chosen]
+                videoSources: [source],
             };
         } catch (err) {
-            console.error('Error finding episode server:', err);
+            console.error("Error finding episode server:", err);
             throw err;
         }
     }
