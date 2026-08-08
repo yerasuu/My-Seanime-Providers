@@ -119,6 +119,9 @@ const GENERIC_WORDS: { [word: string]: boolean } = {
     ova: true, ona: true, tv: true, the: true, final: true,
 };
 
+const BROWSER_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 // Cloudflare turns away player segments (/segs/) that do not look like they
 // came from the player itself: without Sec-Fetch-Site it answers 403, playback
 // stalls and Seanime refetches the source in a loop. Seanime's proxy replays
@@ -128,8 +131,26 @@ const HLS_HEADERS: { [key: string]: string } = {
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
-    "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "User-Agent": BROWSER_UA,
+};
+
+// What the site's own frontend sends when it fetches these endpoints. Measured
+// against sending nothing, the median response roughly halves. It does not stop
+// animeav1 dropping or hanging connections, which is a separate problem and the
+// one behind the long waits.
+const SITE_HEADERS: { [key: string]: string } = {
+    "User-Agent": BROWSER_UA,
+    "Accept": "*/*",
+    "Accept-Language": "es-ES,es;q=0.9",
+    "Referer": "https://animeav1.com/",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+};
+
+const MP4UPLOAD_HEADERS: { [key: string]: string } = {
+    "Referer": "https://www.mp4upload.com/",
+    "User-Agent": BROWSER_UA,
 };
 
 /**
@@ -156,13 +177,17 @@ class Provider {
     // The runtime exposes neither AbortController nor setTimeout, and `timeout`
     // does nothing because of the type mismatch noted above: every request runs
     // to the 35s default, so retries are worth keeping few.
-    private async fetchWithRetry(url: string, retries: number = 2): Promise<FetchResponse> {
+    private async fetchWithRetry(
+        url: string,
+        retries: number = 2,
+        headers: { [key: string]: string } = SITE_HEADERS
+    ): Promise<FetchResponse> {
         const started = Date.now();
         let lastErr: unknown = null;
 
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
-                const res = await fetch(url, { timeout: 15 });
+                const res = await fetch(url, { timeout: 15, headers });
 
                 // animeav1's 5xx responses are usually transient, so retry.
                 if (res.status >= 500 && attempt < retries && Date.now() - started < RETRY_BUDGET_MS) {
@@ -681,7 +706,7 @@ class Provider {
     /** MP4Upload leaves the direct mp4 in the embed HTML, unobfuscated. */
     private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
         // No retries: when mp4upload stalls, each attempt costs 35s.
-        const res = await this.fetchWithRetry(embedUrl, 0);
+        const res = await this.fetchWithRetry(embedUrl, 0, MP4UPLOAD_HEADERS);
         if (!res.ok) return null;
 
         const match = res.text().match(/src:\s*"([^"]+\.mp4[^"]*)"/);
@@ -840,7 +865,7 @@ class Provider {
                 headers = HLS_HEADERS;
             } else if (wanted === "MP4UPLOAD") {
                 source = await this.extractMp4Upload(embedUrl);
-                headers = { Referer: "https://www.mp4upload.com/" };
+                headers = MP4UPLOAD_HEADERS;
             }
 
             if (!source) throw new Error(`No se pudo extraer el video de ${serverName}`);
