@@ -96,6 +96,18 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
+/** Key/value store the runtime shares across this extension's VMs. */
+declare const $store: {
+    get<T = any>(key: string): T | undefined;
+    set(key: string, value: any): void;
+    has(key: string): boolean;
+    remove(key: string): void;
+} | undefined;
+
+// Long enough to cover building one episode list, short enough that a catalog
+// that just added an entry is not hidden for long.
+const SEARCH_CACHE_MS = 5 * 60 * 1000;
+
 // Words that place an entry in a series without naming it, so a title made of
 // nothing else carries no signal about which show it belongs to.
 const GENERIC_WORDS: { [word: string]: boolean } = {
@@ -202,8 +214,20 @@ class Provider {
         return [];
     }
 
+    // Titles get normalised over and over while scoring - every candidate
+    // against every title, several times per search. goja interprets, so the
+    // regex work is worth doing once per distinct string.
+    private normalized: { [value: string]: string } = {};
+
     /** Lowercased, free of accents and punctuation, for comparing titles. */
     private normalize(value: string): string {
+        const cached = this.normalized[value];
+        if (cached !== undefined) return cached;
+
+        return (this.normalized[value] = this.normalizeUncached(value));
+    }
+
+    private normalizeUncached(value: string): string {
         return value
             .toLowerCase()
             .replace(/[áàäâã]/g, "a")
@@ -411,7 +435,26 @@ class Provider {
         return best;
     }
 
+    /**
+     * Seanime searches once per romaji title and once per english, and a miss
+     * sends us back out with the remaining titles, so the same query comes up
+     * repeatedly while one episode list is being built. The store outlives a
+     * single call and is shared across this extension's VMs, so remember what
+     * each query returned for a few minutes.
+     */
     private async searchOnce(query: string, isDub: boolean): Promise<SearchResult[]> {
+        const key = `av1:search:${isDub ? "dub" : "sub"}:${this.normalize(query)}`;
+        const store = typeof $store !== "undefined" ? $store : undefined;
+
+        if (store) {
+            try {
+                const hit = store.get<{ at: number; results: SearchResult[] }>(key);
+                if (hit && hit.results && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.results;
+            } catch (err) {
+                // A store that misbehaves must not take the search down with it.
+            }
+        }
+
         const params = new URLSearchParams();
         params.append("page", "1");
 
@@ -420,7 +463,17 @@ class Provider {
         const res = await this.fetchWithRetry(`${this.baseUrl}/catalogo/__data.json?${params.toString()}`);
         if (!res.ok) return [];
 
-        return this._resolveRemixData(res.json(), isDub);
+        const results = this._resolveRemixData(res.json(), isDub);
+
+        if (store) {
+            try {
+                store.set(key, { at: Date.now(), results });
+            } catch (err) {
+                // Not being able to cache is not a reason to fail.
+            }
+        }
+
+        return results;
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
