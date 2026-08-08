@@ -239,15 +239,18 @@ class Provider {
 
     /**
      * Season number stated in a title, or 0 when it states none.
-     * Recognises "2nd Season", "Season 2", "Part 2" and the roman numerals.
+     *
+     * Only counts seasons. "Part" is a different axis: "The Final Season Part 3"
+     * is the fourth season, and reading a 3 out of it makes the genuine third
+     * season look like the match.
      */
     private seasonOrdinal(title: string): number {
         const text = this.normalize(title);
 
-        const ordinal = text.match(/\b(\d+)(?:st|nd|rd|th)?\s+(?:season|part|cour)\b/);
+        const ordinal = text.match(/\b(\d+)(?:st|nd|rd|th)?\s+season\b/);
         if (ordinal) return parseInt(ordinal[1], 10);
 
-        const trailing = text.match(/\b(?:season|part|cour)\s+(\d+)\b/);
+        const trailing = text.match(/\bseason\s+(\d+)\b/);
         if (trailing) return parseInt(trailing[1], 10);
 
         const roman = text.match(/\s(v?i{1,3})$/);
@@ -320,12 +323,29 @@ class Provider {
         return results;
     }
 
-    /** Every title Seanime knows this anime by. */
+    /**
+     * Every title Seanime knows this anime by, minus the ones that cannot be
+     * compared. Synonyms come in every script, and normalising a Thai or
+     * Japanese title leaves only whatever digits it carried: "…ซีซั่น Part 3"
+     * comes out as "part 3", which any entry with a part number covers in full
+     * and scores a perfect match on. Keep the titles that are mostly latin.
+     */
     private mediaTitles(media?: Media): string[] {
         if (!media) return [];
 
         const titles = [media.romajiTitle, media.englishTitle, ...(media.synonyms || [])];
-        return titles.filter((t): t is string => typeof t === "string" && t.trim() !== "");
+
+        return titles.filter((title): title is string => {
+            if (typeof title !== "string" || title.trim() === "") return false;
+
+            const stripped = title.replace(/\s+/g, "");
+            if (stripped.length === 0) return false;
+
+            const latin = stripped.replace(/[^a-zA-Z0-9]/g, "").length;
+            if (latin / stripped.length < 0.7) return false;
+
+            return this.normalize(title).split(" ").filter(Boolean).length >= 2;
+        });
     }
 
     private bestScore(results: SearchResult[], titles: string[]): number {
