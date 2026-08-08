@@ -101,6 +101,19 @@ declare function fetch(url: string, options?: FetchOptions): Promise<FetchRespon
  * Ese JSON viene serializado con devalue: `data` es un array plano donde los
  * objetos guardan índices en vez de valores, y hay que ir resolviendo punteros.
  */
+// Cloudflare bloquea los segmentos (/segs/) del reproductor si la petición no
+// parece venir del propio player: sin Sec-Fetch-Site responde 403, el player se
+// atasca y Seanime reintenta la fuente en bucle. Estas cabeceras las reenvía el
+// proxy de Seanime en cada segmento, no solo en la playlist.
+const HLS_HEADERS: { [key: string]: string } = {
+    "Referer": "https://player.zilla-networks.com/",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+};
+
 class Provider {
     private baseUrl = "https://animeav1.com";
 
@@ -379,7 +392,7 @@ class Provider {
                     quality: "auto",
                     subtitles: [],
                 };
-                headers = { Referer: "null", "Sec-Fetch-Site": "same-origin" };
+                headers = HLS_HEADERS;
             } else if (wanted === "MP4UPLOAD") {
                 source = await this.extractMp4Upload(embedUrl);
                 headers = { Referer: "https://www.mp4upload.com/" };
