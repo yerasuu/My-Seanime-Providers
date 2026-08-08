@@ -484,8 +484,9 @@ class Provider {
         if (typeof $store === "undefined" || !$store) return undefined;
 
         try {
+            // Compare against undefined: a cached false is still an answer.
             const hit = $store.get<{ at: number; value: T }>(key);
-            if (hit && hit.value && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.value;
+            if (hit && hit.value !== undefined && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.value;
         } catch (err) {
             // A store that misbehaves must not take the search down with it.
         }
@@ -656,6 +657,15 @@ class Provider {
                 });
             });
 
+            // Sub is what the site always carries; a dub is the exception. Say
+            // up front that a dubbed run has nothing to play, rather than hand
+            // back a full list whose every episode fails once Seanime asks it
+            // for the audio. Seanime caches this answer for a day.
+            if (type === "dub" && episodes.length > 0 && !(await this.hasDub(slug, episodes[0].number))) {
+                console.error(`AnimeAV1: ${slug} no tiene doblaje`);
+                return [];
+            }
+
             return episodes;
         } catch (err) {
             console.error("Error finding episodes:", err);
@@ -678,6 +688,52 @@ class Provider {
             quality: "auto",
             subtitles: [],
         };
+    }
+
+    /**
+     * Which audio an episode page carries, as the keys of its embeds object:
+     * ["SUB"] on its own, or ["SUB", "DUB"] where a dub exists.
+     */
+    private async audioTracks(slug: string, number: number): Promise<string[]> {
+        const res = await this.fetchWithRetry(`${this.baseUrl}/media/${slug}/${number}/__data.json`);
+        if (!res.ok) return [];
+
+        const json = res.json();
+
+        for (const node of json?.nodes || []) {
+            if (!node?.data) continue;
+
+            const root = node.data.find(
+                (item: any) => item && typeof item === "object" && "embeds" in item
+            );
+
+            if (root) {
+                const embeds = node.data[root.embeds];
+                return embeds ? Object.keys(embeds) : [];
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Whether this anime is dubbed at all.
+     *
+     * Nothing on the anime's own page says so - the two look alike whether a
+     * dub exists or not - so it takes looking at an episode. Worth the one
+     * request: without it Seanime lists every episode, then fails on each one
+     * in turn as it asks for an audio track that was never there.
+     */
+    private async hasDub(slug: string, number: number): Promise<boolean> {
+        const key = `av1:dub:${slug}`;
+
+        const cached = this.remember<boolean>(key);
+        if (cached !== undefined) return cached;
+
+        const dubbed = (await this.audioTracks(slug, number)).indexOf("DUB") !== -1;
+
+        this.keep(key, dubbed);
+        return dubbed;
     }
 
     async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
