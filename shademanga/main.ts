@@ -1,5 +1,5 @@
-// Tipos del contrato de Seanime para providers de manga.
-// El runtime los provee; esbuild los borra al transpilar.
+// Seanime's manga provider contract.
+// The runtime supplies these; esbuild strips them while transpiling.
 
 declare interface Settings {
     supportsMultiLanguage?: boolean;
@@ -44,7 +44,7 @@ declare interface FetchOptions {
     body?: any;
     noCloudflareBypass?: boolean;
     redirect?: "follow" | "manual" | "error";
-    /** Timeout en segundos. Por defecto 35. */
+    /** Timeout in seconds. Defaults to 35. */
     timeout?: number;
 }
 
@@ -62,7 +62,7 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
-/** Respuestas de la API de ShadeManga. */
+/** ShadeManga API responses. */
 interface ScanGroup {
     id: number;
     nombre: string;
@@ -93,7 +93,7 @@ interface ApiPagesResponse {
 const USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-// El contrato pide que el delimitador de los IDs compuestos no sea una barra.
+// The contract asks that compound ids not be joined with a slash.
 const ID_SEPARATOR = "$";
 
 class Provider {
@@ -152,7 +152,7 @@ class Provider {
             for (const item of series) {
                 if (!item || !item.id || !item.titulo) continue;
 
-                // titulosAlternativos viene como "Wan Pis, OP, ワンピース"; ayuda al matching.
+                // titulosAlternativos arrives as "Wan Pis, OP, ワンピース"; it helps matching.
                 const synonyms = (item.titulosAlternativos || "")
                     .split(",")
                     .map(s => s.trim())
@@ -191,7 +191,7 @@ class Provider {
             for (const item of chapterList) {
                 if (!item || !item.publicId) continue;
 
-                // numeroCapitulo puede ser 0 (prólogos): comparar contra null, no por falsy.
+                // numeroCapitulo is 0 for prologues, so test the type rather than truthiness.
                 const number = item.numeroCapitulo;
                 if (typeof number !== "number") continue;
 
@@ -212,7 +212,7 @@ class Provider {
     }
 
     async findChapterPages(id: string): Promise<ChapterPage[]> {
-        // Los IDs viejos usaban "/" como separador; se siguen aceptando.
+        // Older ids joined the keys with "/", so keep parsing those too.
         const parts = id.split(id.indexOf(ID_SEPARATOR) !== -1 ? ID_SEPARATOR : "/");
         if (parts.length < 2) return [];
 

@@ -1,6 +1,6 @@
-// Tipos del contrato de Seanime para providers de onlinestream.
-// Se declaran aquí porque el runtime los provee: esbuild los borra al transpilar
-// y así el archivo es autocontenido (no hay .d.ts que referenciar en el repo).
+// Seanime's onlinestream provider contract.
+// Declared here because the runtime supplies them: esbuild strips them while
+// transpiling, which keeps this file self-contained (the repo ships no .d.ts).
 
 declare type SubOrDub = "sub" | "dub" | "both";
 
@@ -78,7 +78,7 @@ declare interface FetchOptions {
     body?: any;
     noCloudflareBypass?: boolean;
     redirect?: "follow" | "manual" | "error";
-    /** Timeout en segundos. Por defecto 35. */
+    /** Timeout in seconds. Defaults to 35. */
     timeout?: number;
 }
 
@@ -96,15 +96,10 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
-/**
- * AnimeAV1 usa SvelteKit, así que cada página expone su estado en `__data.json`.
- * Ese JSON viene serializado con devalue: `data` es un array plano donde los
- * objetos guardan índices en vez de valores, y hay que ir resolviendo punteros.
- */
-// Cloudflare bloquea los segmentos (/segs/) del reproductor si la petición no
-// parece venir del propio player: sin Sec-Fetch-Site responde 403, el player se
-// atasca y Seanime reintenta la fuente en bucle. Estas cabeceras las reenvía el
-// proxy de Seanime en cada segmento, no solo en la playlist.
+// Cloudflare turns away player segments (/segs/) that do not look like they
+// came from the player itself: without Sec-Fetch-Site it answers 403, playback
+// stalls and Seanime refetches the source in a loop. Seanime's proxy replays
+// these headers on every segment, not just on the playlist.
 const HLS_HEADERS: { [key: string]: string } = {
     "Referer": "https://player.zilla-networks.com/",
     "Sec-Fetch-Site": "same-origin",
@@ -114,26 +109,30 @@ const HLS_HEADERS: { [key: string]: string } = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 };
 
+/**
+ * AnimeAV1 runs on SvelteKit, so every page exposes its state at `__data.json`.
+ * devalue serialises that JSON: `data` is a flat array whose objects hold
+ * indices instead of values, so reading anything means following pointers.
+ */
 class Provider {
     private baseUrl = "https://animeav1.com";
 
     getSettings(): Settings {
-        // Seanime pide TODOS los servidores de esta lista antes de devolver
-        // ninguna fuente, así que un servidor lento retrasa cada reproducción.
-        // mp4upload responde en <1s casi siempre, pero se cuelga ~32s cada
-        // tantas peticiones, y el `timeout` de fetch no se aplica (Seanime lo
-        // lee con .(int) y goja exporta los enteros como int64), así que ese
-        // cuelgue se come el arranque entero. Queda fuera de la lista; el
-        // extractor sigue abajo por si se quiere reactivar.
+        // Seanime asks for EVERY server listed here before it returns any
+        // source, so one slow server delays every playback. mp4upload usually
+        // answers in under a second but stalls for ~32s now and then, and
+        // fetch's `timeout` never applies (Seanime reads it with .(int) while
+        // goja exports numbers as int64), so that stall eats the whole startup.
+        // Left out of the list; the extractor below still works if re-enabled.
         return {
             episodeServers: ["HLS"],
             supportsDub: true,
         };
     }
 
-    // El runtime no expone AbortController ni setTimeout. `timeout` tampoco
-    // surte efecto por el bug de tipos de arriba: cada petición se corta a los
-    // 35s por defecto, así que conviene no multiplicar reintentos.
+    // The runtime exposes neither AbortController nor setTimeout, and `timeout`
+    // does nothing because of the type mismatch noted above: every request runs
+    // to the 35s default, so retries are worth keeping few.
     private async fetchWithRetry(url: string, retries: number = 2): Promise<FetchResponse> {
         let lastErr: unknown = null;
 
@@ -141,7 +140,7 @@ class Provider {
             try {
                 const res = await fetch(url, { timeout: 15 });
 
-                // Los 5xx de animeav1 suelen ser transitorios: reintentar.
+                // animeav1's 5xx responses are usually transient, so retry.
                 if (res.status >= 500 && attempt < retries) continue;
 
                 return res;
@@ -196,7 +195,7 @@ class Provider {
         return [];
     }
 
-    /** Minúsculas, sin acentos ni signos, para comparar títulos. */
+    /** Lowercased, free of accents and punctuation, for comparing titles. */
     private normalize(value: string): string {
         return value
             .toLowerCase()
@@ -210,7 +209,7 @@ class Provider {
             .trim();
     }
 
-    /** Parecido por solapamiento de palabras (Dice). Barato y suficiente. */
+    /** Word-overlap similarity (Dice). Cheap, and good enough here. */
     private similarity(a: string, b: string): number {
         const x = this.normalize(a).split(" ").filter(Boolean);
         const y = this.normalize(b).split(" ").filter(Boolean);
@@ -230,7 +229,7 @@ class Provider {
         return (2 * hits) / (x.length + y.length);
     }
 
-    /** Todos los títulos que Seanime conoce de la obra. */
+    /** Every title Seanime knows this anime by. */
     private mediaTitles(media?: Media): string[] {
         if (!media) return [];
 
@@ -270,11 +269,11 @@ class Provider {
         try {
             const results = await this.searchOnce(opts.query, isDub);
 
-            // El catálogo está titulado en romaji, así que buscar por el título
-            // en inglés suele devolver 20 resultados sin relación. Seanime elige
-            // por distancia mínima sin umbral, o sea que con solo basura en la
-            // lista acaba escogiendo la obra equivocada en silencio. Si nada se
-            // parece a lo que buscamos, reintentamos con los otros títulos.
+            // The catalog is titled in romaji, so searching by english title
+            // tends to return twenty unrelated entries. Seanime picks whichever
+            // result sits closest and applies no threshold, so a list of noise
+            // still resolves to some anime, silently the wrong one. When nothing
+            // resembles what we are after, search again with the other titles.
             if (titles.length === 0 || this.bestScore(results, titles) >= 0.6) {
                 return results;
             }
@@ -394,9 +393,9 @@ class Provider {
         }
     }
 
-    /** MP4Upload deja el mp4 directo en el HTML del embed, sin ofuscar. */
+    /** MP4Upload leaves the direct mp4 in the embed HTML, unobfuscated. */
     private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
-        // Sin reintentos: si mp4upload se cuelga, cada intento cuesta 35s.
+        // No retries: when mp4upload stalls, each attempt costs 35s.
         const res = await this.fetchWithRetry(embedUrl, 0);
         if (!res.ok) return null;
 
@@ -412,7 +411,7 @@ class Provider {
     }
 
     async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
-        // Seanime manda el EpisodeDetails completo, pero aceptamos el id suelto por si acaso.
+        // Seanime passes the whole EpisodeDetails, but accept a bare id too.
         const rawId = typeof episode === "string" ? episode : episode.id;
 
         let slug: string;
