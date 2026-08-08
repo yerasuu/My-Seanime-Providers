@@ -209,16 +209,24 @@ class Provider {
             .trim();
     }
 
-    /** Word-overlap similarity (Dice). Cheap, and good enough here. */
-    private similarity(a: string, b: string): number {
-        const x = this.normalize(a).split(" ").filter(Boolean);
-        const y = this.normalize(b).split(" ").filter(Boolean);
-        if (x.length === 0 || y.length === 0) return 0;
+    /**
+     * Share of the wanted title's words that the candidate contains.
+     *
+     * Deliberately asymmetric. Seasons of the same show differ only by a short
+     * suffix on top of a long shared prefix, so any measure that divides by the
+     * combined length (Dice, and Levenshtein for that matter) is swamped by the
+     * prefix and rates the longest, most specific entry worst. Asking instead
+     * how much of the wanted title made it into the candidate keeps the weight
+     * on the words that actually tell the seasons apart.
+     */
+    private similarity(candidate: string, wanted: string): number {
+        const words = this.normalize(wanted).split(" ").filter(Boolean);
+        const pool = this.normalize(candidate).split(" ").filter(Boolean);
+        if (words.length === 0 || pool.length === 0) return 0;
 
-        const pool = y.slice();
         let hits = 0;
 
-        for (const word of x) {
+        for (const word of words) {
             const at = pool.indexOf(word);
             if (at !== -1) {
                 hits++;
@@ -226,7 +234,90 @@ class Provider {
             }
         }
 
-        return (2 * hits) / (x.length + y.length);
+        return hits / words.length;
+    }
+
+    /**
+     * Season number stated in a title, or 0 when it states none.
+     * Recognises "2nd Season", "Season 2", "Part 2" and the roman numerals.
+     */
+    private seasonOrdinal(title: string): number {
+        const text = this.normalize(title);
+
+        const ordinal = text.match(/\b(\d+)(?:st|nd|rd|th)?\s+(?:season|part|cour)\b/);
+        if (ordinal) return parseInt(ordinal[1], 10);
+
+        const trailing = text.match(/\b(?:season|part|cour)\s+(\d+)\b/);
+        if (trailing) return parseInt(trailing[1], 10);
+
+        const roman = text.match(/\s(v?i{1,3})$/);
+        if (roman) {
+            const map: { [key: string]: number } = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6 };
+            return map[roman[1]] || 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Seanime picks the candidate with the smallest Levenshtein distance and
+     * applies no threshold, so a neighbouring season is a dangerous decoy: for
+     * Honzuki no Gekokujou the synonym "... 4th Season" sits 3 edits from the
+     * site's "... 3rd Season" but much further from the season's actual title,
+     * and the wrong season wins. Drop candidates that name a different season;
+     * anything that names none is kept, since the site often titles a season
+     * by its subtitle instead.
+     */
+    private dropOtherSeasons(results: SearchResult[], titles: string[]): SearchResult[] {
+        let wanted = 0;
+        for (const title of titles) {
+            const season = this.seasonOrdinal(title);
+            if (season > wanted) wanted = season;
+        }
+
+        if (wanted === 0) return results;
+
+        const kept = results.filter(r => {
+            const season = this.seasonOrdinal(r.title);
+            return season === 0 || season === wanted;
+        });
+
+        return kept.length > 0 ? kept : results;
+    }
+
+    /**
+     * Levenshtein counts raw edits, so it rewards whichever catalog entry is
+     * shortest rather than the one that matches: for Honzuki's fourth season
+     * the synonym "... 4th Season" lands closer to the site's "... Recap" and
+     * to the first season than to "... - Ryoushu no Youjo", the actual entry.
+     * Word overlap does read that subtitle, so when one candidate clearly wins
+     * on it we hand back only that one and Seanime has nothing to trip over.
+     * A close second means we are not sure, and the full list goes back.
+     */
+    private narrowToBest(results: SearchResult[], titles: string[]): SearchResult[] {
+        let best: SearchResult | null = null;
+        let bestScore = 0;
+        let runnerUp = 0;
+
+        for (const result of results) {
+            let score = 0;
+            for (const title of titles) {
+                const value = this.similarity(result.title, title);
+                if (value > score) score = value;
+            }
+
+            if (score > bestScore) {
+                runnerUp = bestScore;
+                bestScore = score;
+                best = result;
+            } else if (score > runnerUp) {
+                runnerUp = score;
+            }
+        }
+
+        if (best && bestScore >= 0.6 && bestScore - runnerUp >= 0.05) return [best];
+
+        return results;
     }
 
     /** Every title Seanime knows this anime by. */
@@ -274,8 +365,10 @@ class Provider {
             // result sits closest and applies no threshold, so a list of noise
             // still resolves to some anime, silently the wrong one. When nothing
             // resembles what we are after, search again with the other titles.
-            if (titles.length === 0 || this.bestScore(results, titles) >= 0.6) {
-                return results;
+            if (titles.length === 0) return results;
+
+            if (this.bestScore(results, titles) >= 0.6) {
+                return this.narrowToBest(this.dropOtherSeasons(results, titles), titles);
             }
 
             const seen: { [id: string]: boolean } = {};
@@ -304,7 +397,7 @@ class Provider {
                 if (this.bestScore(merged, titles) >= 0.6) break;
             }
 
-            return merged;
+            return this.narrowToBest(this.dropOtherSeasons(merged, titles), titles);
         } catch (err) {
             console.error("Error searching AnimeAV1:", err);
             return [];
