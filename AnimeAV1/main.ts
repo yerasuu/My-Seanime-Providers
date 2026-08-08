@@ -657,13 +657,18 @@ class Provider {
                 });
             });
 
-            // Sub is what the site always carries; a dub is the exception. Say
-            // up front that a dubbed run has nothing to play, rather than hand
-            // back a full list whose every episode fails once Seanime asks it
-            // for the audio. Seanime caches this answer for a day.
+            // Sub is what the site always carries; a dub is the exception, and
+            // the anime's own page never says which. Settle it here rather than
+            // hand back a list whose every episode fails once Seanime asks for
+            // an audio track that was never there. Where no dub exists the
+            // episodes are handed back as sub, so the show still plays.
             if (type === "dub" && episodes.length > 0 && !(await this.hasDub(slug, episodes[0].number))) {
-                console.error(`AnimeAV1: ${slug} no tiene doblaje`);
-                return [];
+                console.error(`AnimeAV1: ${slug} no tiene doblaje, se usa el sub`);
+
+                return episodes.map(episode => ({
+                    ...episode,
+                    id: JSON.stringify({ slug, number: episode.number, type: "sub" }),
+                }));
             }
 
             return episodes;
@@ -780,8 +785,19 @@ class Provider {
 
             if (!data || !root) throw new Error("No se encontraron servidores");
 
+            const embeds = data[root.embeds] || {};
             const category = type.toUpperCase();
-            const listIndex = data[root.embeds]?.[category];
+
+            // A dub can also stop partway through a run, so fall back per
+            // episode as well and play the sub rather than nothing.
+            let listIndex = embeds[category];
+            if (typeof listIndex !== "number" && category === "DUB") {
+                listIndex = embeds["SUB"];
+                if (typeof listIndex === "number") {
+                    console.error(`AnimeAV1: ${slug} ${number} sin doblaje, se usa el sub`);
+                }
+            }
+
             if (typeof listIndex !== "number") throw new Error(`No hay contenido en ${category}`);
 
             const serverList = data[listIndex];
