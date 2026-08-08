@@ -118,14 +118,22 @@ class Provider {
     private baseUrl = "https://animeav1.com";
 
     getSettings(): Settings {
+        // Seanime pide TODOS los servidores de esta lista antes de devolver
+        // ninguna fuente, así que un servidor lento retrasa cada reproducción.
+        // mp4upload responde en <1s casi siempre, pero se cuelga ~32s cada
+        // tantas peticiones, y el `timeout` de fetch no se aplica (Seanime lo
+        // lee con .(int) y goja exporta los enteros como int64), así que ese
+        // cuelgue se come el arranque entero. Queda fuera de la lista; el
+        // extractor sigue abajo por si se quiere reactivar.
         return {
-            episodeServers: ["HLS", "MP4Upload"],
+            episodeServers: ["HLS"],
             supportsDub: true,
         };
     }
 
-    // El runtime no expone AbortController ni setTimeout: fetch ya corta solo
-    // con la opción `timeout` (en segundos).
+    // El runtime no expone AbortController ni setTimeout. `timeout` tampoco
+    // surte efecto por el bug de tipos de arriba: cada petición se corta a los
+    // 35s por defecto, así que conviene no multiplicar reintentos.
     private async fetchWithRetry(url: string, retries: number = 2): Promise<FetchResponse> {
         let lastErr: unknown = null;
 
@@ -293,7 +301,8 @@ class Provider {
 
     /** MP4Upload deja el mp4 directo en el HTML del embed, sin ofuscar. */
     private async extractMp4Upload(embedUrl: string): Promise<VideoSource | null> {
-        const res = await this.fetchWithRetry(embedUrl);
+        // Sin reintentos: si mp4upload se cuelga, cada intento cuesta 35s.
+        const res = await this.fetchWithRetry(embedUrl, 0);
         if (!res.ok) return null;
 
         const match = res.text().match(/src:\s*"([^"]+\.mp4[^"]*)"/);
