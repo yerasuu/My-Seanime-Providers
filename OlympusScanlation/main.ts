@@ -10,7 +10,7 @@ interface Serie {
   first_chapter: {
     id: number;
     name: string;
-  };
+  } | null;
 }
 
 interface Chapter {
@@ -194,7 +194,7 @@ class Provider {
   async getRealSerieId(id: string): Promise<string | null> {
     const serie = await this.getSerie(id);
 
-    if (!serie) return null;
+    if (!serie || !serie.first_chapter) return null;
 
     const chapter = await this.getChapter(serie.first_chapter.id, id);
 
