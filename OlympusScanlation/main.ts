@@ -83,16 +83,39 @@ class Provider {
     this.apiBaseUrl = this.formatUrl(url, "https", "panel");
   }
 
+  /** Lowercased, free of accents and punctuation, for comparing titles. */
+  private normalize(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[áàäâã]/g, "a")
+      .replace(/[éèëê]/g, "e")
+      .replace(/[íìïî]/g, "i")
+      .replace(/[óòöôõ]/g, "o")
+      .replace(/[úùüû]/g, "u")
+      .replace(/ñ/g, "n")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Whole-word containment instead of a raw substring check, so a query word
+   * like "hero" doesn't false-positive match inside an unrelated word like
+   * "heroina" the way `.includes()` did.
+   */
+  private matches(candidate: string, query: string): boolean {
+    const words = this.normalize(query).split(" ").filter(Boolean);
+    if (words.length === 0) return false;
+
+    const pool = this.normalize(candidate).split(" ").filter(Boolean);
+    return words.every((word) => pool.includes(word));
+  }
+
   async search(opts: QueryOptions): Promise<SearchResult[]> {
     this.loadUrls();
     const list = await this.getSeriesList();
 
     const ids = list
-      .filter(
-        (item) =>
-          item.name.toLowerCase().includes(opts.query.toLowerCase()) &&
-          item.type === "comic",
-      )
+      .filter((item) => item.type === "comic" && this.matches(item.name, opts.query))
       .map((i) => i.slug);
 
     const series: SearchResult[] = [];
