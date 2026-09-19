@@ -98,16 +98,16 @@ class Provider {
   }
 
   /**
-   * Whole-word containment instead of a raw substring check, so a query word
-   * like "hero" doesn't false-positive match inside an unrelated word like
-   * "heroina" the way `.includes()` did.
+   * Per-word prefix match instead of a raw substring check, so a query word
+   * still matches a title mid-typing (e.g. "hero" -> "heroica") without also
+   * matching an unrelated word that just happens to contain it midstring.
    */
   private matches(candidate: string, query: string): boolean {
     const words = this.normalize(query).split(" ").filter(Boolean);
     if (words.length === 0) return false;
 
     const pool = this.normalize(candidate).split(" ").filter(Boolean);
-    return words.every((word) => pool.includes(word));
+    return words.every((word) => pool.some((candidateWord) => candidateWord.startsWith(word)));
   }
 
   async search(opts: QueryOptions): Promise<SearchResult[]> {
