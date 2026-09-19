@@ -1,13 +1,13 @@
 {
   "id": "olympusscanlation",
   "name": "Olympus Scanlation",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/manifest.json",
   "language": "typescript",
   "type": "manga-provider",
   "description": "Olympus scanlation manga provider.",
   "author": "branrgx & yerasuu",
-  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/icon.png",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/icon.webp",
   "lang": "es",
   "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/main.ts"
 }
