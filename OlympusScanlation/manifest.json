@@ -1,0 +1,25 @@
+{
+  "id": "olympusscanlation",
+  "name": "Olympus Scanlation",
+  "version": "1.2.1",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/manifest.json",
+  "language": "typescript",
+  "type": "manga-provider",
+  "description": "Olympus scanlation manga provider.",
+  "author": "branrgx",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/icon.png",
+  "lang": "es",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/OlympusScanlation/main.ts",
+  "userConfig": {
+    "requiresConfig": false,
+    "version": 1,
+    "fields": [
+      {
+        "name": "webUrl",
+        "label": "Web url",
+        "type": "text",
+        "default": "https://olympusxyz.com"
+      }
+    ]
+  }
+}
