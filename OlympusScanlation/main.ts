@@ -54,7 +54,6 @@ interface ChaptersList {
 }
 
 class Provider {
-  private webUrl = "{{webUrl}}";
   private baseUrl = "";
   private apiBaseUrl = "";
 
@@ -79,7 +78,7 @@ class Provider {
 
   private loadUrls() {
     // olympusbiblioteca.com now 301s here permanently, so this is the live domain.
-    const url = this.webUrl || "https://olympusxyz.com";
+    const url = "https://olympusxyz.com";
     this.baseUrl = this.formatUrl(url, "https");
     this.apiBaseUrl = this.formatUrl(url, "https", "panel");
   }
