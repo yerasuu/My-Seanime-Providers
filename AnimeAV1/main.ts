@@ -1,76 +1,7 @@
+/// <reference path="../online-streaming-provider.d.ts" />
+
 // Seanime's onlinestream provider contract.
-// Declared here because the runtime supplies them: esbuild strips them while
-// transpiling, which keeps this file self-contained (the repo ships no .d.ts).
-
-declare type SubOrDub = "sub" | "dub" | "both";
-
-declare type VideoSourceType = "mp4" | "m3u8" | "unknown";
-
-declare interface Settings {
-    episodeServers: string[];
-    supportsDub: boolean;
-}
-
-declare interface FuzzyDate {
-    year: number;
-    month?: number;
-    day?: number;
-}
-
-declare interface Media {
-    id: number;
-    idMal?: number;
-    status?: string;
-    format?: string;
-    englishTitle?: string;
-    romajiTitle?: string;
-    episodeCount?: number;
-    synonyms: string[];
-    isAdult: boolean;
-    startDate?: FuzzyDate;
-}
-
-declare interface SearchOptions {
-    media: Media;
-    query: string;
-    dub: boolean;
-    year?: number;
-}
-
-declare interface SearchResult {
-    id: string;
-    title: string;
-    url: string;
-    subOrDub: SubOrDub;
-}
-
-declare interface EpisodeDetails {
-    id: string;
-    number: number;
-    url: string;
-    title?: string;
-}
-
-declare interface VideoSubtitle {
-    id: string;
-    url: string;
-    language: string;
-    isDefault: boolean;
-}
-
-declare interface VideoSource {
-    url: string;
-    type: VideoSourceType;
-    quality: string;
-    label?: string;
-    subtitles: VideoSubtitle[];
-}
-
-declare interface EpisodeServer {
-    server: string;
-    headers: { [key: string]: string };
-    videoSources: VideoSource[];
-}
+// The runtime supplies these; esbuild strips them while transpiling.
 
 declare interface FetchOptions {
     method?: string;
