@@ -1,42 +1,7 @@
+/// <reference path="../manga-provider.d.ts" />
+
 // Seanime's manga provider contract.
 // The runtime supplies these; esbuild strips them while transpiling.
-
-declare interface Settings {
-    supportsMultiLanguage?: boolean;
-    supportsMultiScanlator?: boolean;
-}
-
-declare interface QueryOptions {
-    query: string;
-    year?: number;
-}
-
-declare interface SearchResult {
-    id: string;
-    title: string;
-    synonyms?: string[];
-    year?: number;
-    image?: string;
-    imageHeaders?: { [key: string]: string };
-}
-
-declare interface ChapterDetails {
-    id: string;
-    url: string;
-    title: string;
-    chapter: string;
-    index: number;
-    scanlator?: string;
-    language?: string;
-    rating?: number;
-    updatedAt?: string;
-}
-
-declare interface ChapterPage {
-    url: string;
-    index: number;
-    headers: { [key: string]: string };
-}
 
 declare interface FetchOptions {
     method?: string;
