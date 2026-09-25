@@ -24,7 +24,10 @@ Plugins with a `src/` directory (today only AnimeAV1) have a generated `main.ts`
 npm install          # once
 npm run build        # regenerate every plugin's main.ts
 npm run check        # fail if any main.ts is out of date with its src/
-node build.mjs AnimeAV1   # build just one plugin
+# build just one plugin
+npm run build AnimeAV1
+# or
+node build.mjs AnimeAV1
 ```
 
 Commit `src/` and the regenerated `main.ts` together.
