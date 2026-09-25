@@ -17,13 +17,15 @@ class Provider {
     private baseUrl = "https://animeav1.com";
 
     getSettings(): Settings {
-        // Seanime asks for every server listed here before it hands back any
-        // source, so all of them are resolved even when only one gets watched.
-        // HLS stays first for the episodes that still carry it; by September
-        // 2026 the site had stopped listing it, and a server an episode lacks
-        // fails at once from the cached embeds table. mp4upload goes last as
-        // the fallback, and it looks after its own stalls, so a bad spell on
-        // its side costs the fallback rather than the episode.
+        /**
+         * Seanime asks for every server listed here before it hands back any
+         * source, so all of them are resolved even when only one gets watched.
+         * HLS stays first for the episodes that still carry it; by September
+         * 2026 the site had stopped listing it, and a server an episode lacks
+         * fails at once from the cached embeds table. mp4upload goes last as
+         * the fallback, and it looks after its own stalls, so a bad spell on
+         * its side costs the fallback rather than the episode.
+         */
         return {
             episodeServers: ["HLS", "UPNShare", "Byse", "Voe", "MP4Upload"],
             supportsDub: true,
@@ -104,22 +106,28 @@ class Provider {
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
         const isDub = opts.dub || false;
-        // Every title is fair game as a search query; only the primary ones
-        // are trusted to say which entry we are looking at.
+        /**
+         * Every title is fair game as a search query; only the primary ones
+         * are trusted to say which entry we are looking at.
+         */
         const titles = mediaTitles(opts.media);
         const primary = primaryTitles(opts.media);
 
-        // Overriding Seanime is for series, where the decoy is a neighbouring
-        // season. Films number and romanise themselves however they like -
-        // "Evangelion Shin Movie: Kyuu" is the same film as "Evangelion Movie
-        // 3: Q" - and there is no season to reason about, so leave them alone.
+        /**
+         * Overriding Seanime is for series, where the decoy is a neighbouring
+         * season. Films number and romanise themselves however they like -
+         * "Evangelion Shin Movie: Kyuu" is the same film as "Evangelion Movie
+         * 3: Q" - and there is no season to reason about, so leave them alone.
+         */
         const narrow = (opts.media && opts.media.format || "").toUpperCase() !== "MOVIE";
 
-        // Seanime searches the same anime twice, once per title, and merges the
-        // two lists by id. animeav1 drops roughly one connection in six and a
-        // dropped one hangs for a quarter of a minute before it gives up, so
-        // the second search is mostly another chance to stall. Answer it from
-        // what the first one worked out.
+        /**
+         * Seanime searches the same anime twice, once per title, and merges the
+         * two lists by id. animeav1 drops roughly one connection in six and a
+         * dropped one hangs for a quarter of a minute before it gives up, so
+         * the second search is mostly another chance to stall. Answer it from
+         * what the first one worked out.
+         */
         const cacheKey = opts.media && opts.media.id
             ? `av1:media:${opts.media.id}:${isDub ? "dub" : "sub"}`
             : "";
@@ -130,11 +138,13 @@ class Provider {
         try {
             const results = await this.searchOnce(opts.query, isDub);
 
-            // The catalog is titled in romaji, so searching by english title
-            // tends to return twenty unrelated entries. Seanime picks whichever
-            // result sits closest and applies no threshold, so a list of noise
-            // still resolves to some anime, silently the wrong one. When nothing
-            // resembles what we are after, search again with the other titles.
+            /**
+             * The catalog is titled in romaji, so searching by english title
+             * tends to return twenty unrelated entries. Seanime picks whichever
+             * result sits closest and applies no threshold, so a list of noise
+             * still resolves to some anime, silently the wrong one. When nothing
+             * resembles what we are after, search again with the other titles.
+             */
             if (titles.length === 0) return results;
 
             if (bestScore(results, primary) >= 0.6) {
@@ -255,11 +265,13 @@ class Provider {
                 });
             });
 
-            // Sub is what the site always carries; a dub is the exception, and
-            // the anime's own page never says which. Settle it here rather than
-            // hand back a list whose every episode fails once Seanime asks for
-            // an audio track that was never there. Where no dub exists the
-            // episodes are handed back as sub, so the show still plays.
+            /**
+             * Sub is what the site always carries; a dub is the exception, and
+             * the anime's own page never says which. Settle it here rather than
+             * hand back a list whose every episode fails once Seanime asks for
+             * an audio track that was never there. Where no dub exists the
+             * episodes are handed back as sub, so the show still plays.
+             */
             if (type === "dub" && episodes.length > 0 && !(await this.hasDub(slug, episodes[0].number))) {
                 console.error(`AnimeAV1: ${slug} no tiene doblaje, se usa el sub`);
 
@@ -365,8 +377,10 @@ class Provider {
             const embeds = found.embeds;
             const category = type.toUpperCase();
 
-            // A dub can also stop partway through a run, so fall back per
-            // episode as well and play the sub rather than nothing.
+            /**
+             * A dub can also stop partway through a run, so fall back per
+             * episode as well and play the sub rather than nothing.
+             */
             let listIndex = embeds[category];
             if (typeof listIndex !== "number" && category === "DUB") {
                 listIndex = embeds["SUB"];

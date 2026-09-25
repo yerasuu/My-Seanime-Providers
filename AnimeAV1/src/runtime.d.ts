@@ -1,5 +1,7 @@
-// Seanime's onlinestream provider contract.
-// The runtime supplies these; esbuild strips them while transpiling.
+/**
+ * Seanime's onlinestream provider contract.
+ * The runtime supplies these; esbuild strips them while transpiling.
+ */
 
 declare interface FetchOptions {
     method?: string;
@@ -7,7 +9,7 @@ declare interface FetchOptions {
     body?: any;
     noCloudflareBypass?: boolean;
     redirect?: "follow" | "manual" | "error";
-    /** Timeout in seconds. Defaults to 35. */
+    // Timeout in seconds. Defaults to 35.
     timeout?: number;
 }
 
@@ -25,7 +27,7 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
-/** Key/value store the runtime shares across this extension's VMs. */
+// Key/value store the runtime shares across this extension's VMs.
 declare const $store: {
     get<T = any>(key: string): T | undefined;
     set(key: string, value: any): void;
@@ -33,13 +35,13 @@ declare const $store: {
     remove(key: string): void;
 } | undefined;
 
-/** Bytes as the runtime's CryptoJS hands them out; only its own functions read them. */
+// Bytes as the runtime's CryptoJS hands them out; only its own functions read them.
 declare interface CryptoBytes {
     readonly __cryptoBytes: never;
 }
 
 declare interface CryptoEncoder {
-    /** Yields null when the input is not valid for this encoding. */
+    // Yields null when the input is not valid for this encoding.
     parse(input: string): CryptoBytes;
     stringify(input: CryptoBytes): string;
 }

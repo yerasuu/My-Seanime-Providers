@@ -1,10 +1,12 @@
 /// <reference path="runtime.d.ts" />
 
-// Long enough to cover building one episode list, short enough that a catalog
-// that just added an entry is not hidden for long.
+/**
+ * Long enough to cover building one episode list, short enough that a catalog
+ * that just added an entry is not hidden for long.
+ */
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
-/** Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there. */
+// Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there.
 function remember<T>(key: string): T | undefined {
     if (typeof $store === "undefined" || !$store) return undefined;
 

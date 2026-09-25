@@ -1,8 +1,10 @@
 /// <reference path="../http.ts" />
 /// <reference path="../crypto.ts" />
 
-// Filler Voe scatters through its packed config; the payload only decodes
-// once every one of them is gone.
+/**
+ * Filler Voe scatters through its packed config; the payload only decodes
+ * once every one of them is gone.
+ */
 const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
 
 /**
@@ -14,8 +16,10 @@ async function extractVoe(embedUrl: string): Promise<VideoSource[]> {
     try {
         let html = (await fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
 
-        // voe.sx only answers with a script that sends the browser on to
-        // whichever mirror is current, not with an HTTP redirect.
+        /**
+         * voe.sx only answers with a script that sends the browser on to
+         * whichever mirror is current, not with an HTTP redirect.
+         */
         const hop = html.match(/window\.location\.href\s*=\s*'(https?:\/\/[^']+)'/);
         if (hop && html.indexOf("application/json") === -1) {
             html = (await fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();

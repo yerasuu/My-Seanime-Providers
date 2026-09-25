@@ -1,12 +1,16 @@
 /// <reference path="../http.ts" />
 /// <reference path="../store.ts" />
 
-// Past this, a host is not being slow, it has stopped answering: mp4upload
-// serves in well under a second or not at all. Well clear of a normal reply.
+/**
+ * Past this, a host is not being slow, it has stopped answering: mp4upload
+ * serves in well under a second or not at all. Well clear of a normal reply.
+ */
 const SLOW_HOST_MS = 6000;
 
-// Written down when mp4upload stalls, so it is passed over while this is set
-// rather than costing another 35s on the next episode. Shares SEARCH_CACHE_MS.
+/**
+ * Written down when mp4upload stalls, so it is passed over while this is set
+ * rather than costing another 35s on the next episode. Shares SEARCH_CACHE_MS.
+ */
 const MP4UPLOAD_DOWN_KEY = "av1:mp4upload:down";
 
 const MP4UPLOAD_HEADERS: { [key: string]: string } = {

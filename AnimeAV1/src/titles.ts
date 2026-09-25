@@ -1,18 +1,22 @@
 /// <reference path="../../online-streaming-provider.d.ts" />
 
-// Words that place an entry in a series without naming it, so a title made of
-// nothing else carries no signal about which show it belongs to.
+/**
+ * Words that place an entry in a series without naming it, so a title made of
+ * nothing else carries no signal about which show it belongs to.
+ */
 const GENERIC_WORDS: { [word: string]: boolean } = {
     season: true, part: true, cour: true, movie: true, special: true,
     ova: true, ona: true, tv: true, the: true, final: true,
 };
 
-// Titles get normalised over and over while scoring - every candidate
-// against every title, several times per search. goja interprets, so the
-// regex work is worth doing once per distinct string.
+/**
+ * Titles get normalised over and over while scoring - every candidate
+ * against every title, several times per search. goja interprets, so the
+ * regex work is worth doing once per distinct string.
+ */
 const normalizedTitles: { [value: string]: string } = {};
 
-/** Lowercased, free of accents and punctuation, for comparing titles. */
+// Lowercased, free of accents and punctuation, for comparing titles.
 function normalize(value: string): string {
     const cached = normalizedTitles[value];
     if (cached !== undefined) return cached;
@@ -161,9 +165,11 @@ function narrowToBest(results: SearchResult[], titles: string[]): SearchResult[]
         }
     }
 
-    // Thresholds are for the balanced score, which runs lower than plain
-    // coverage: a right-but-wordier entry sits around 0.57 while its
-    // siblings sit near 0.33. Demand a real gap so ties stay with Seanime.
+    /**
+     * Thresholds are for the balanced score, which runs lower than plain
+     * coverage: a right-but-wordier entry sits around 0.57 while its
+     * siblings sit near 0.33. Demand a real gap so ties stay with Seanime.
+     */
     if (best && bestScore >= 0.5 && bestScore - runnerUp >= 0.08) return [best];
 
     return results;
@@ -207,9 +213,11 @@ function usableTitles(titles: (string | undefined)[]): string[] {
         const latin = stripped.replace(/[^a-zA-Z0-9]/g, "").length;
         if (latin / stripped.length < 0.7) return false;
 
-        // Keep single-word titles: plenty of shows are just "Jigokuraku".
-        // What has to go is a title left with nothing but numbering, which
-        // is what a foreign one decays into once its own script is gone.
+        /**
+         * Keep single-word titles: plenty of shows are just "Jigokuraku".
+         * What has to go is a title left with nothing but numbering, which
+         * is what a foreign one decays into once its own script is gone.
+         */
         const words = normalize(title).split(" ").filter(Boolean);
         return words.some(w => w.length >= 3 && !GENERIC_WORDS[w]);
     });

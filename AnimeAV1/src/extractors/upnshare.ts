@@ -1,8 +1,10 @@
 /// <reference path="../http.ts" />
 /// <reference path="../crypto.ts" />
 
-// Fixed in UPNShare's player rather than sent per request: its API answers in
-// hex AES-128-CBC under these, so a rotation there breaks this server outright.
+/**
+ * Fixed in UPNShare's player rather than sent per request: its API answers in
+ * hex AES-128-CBC under these, so a rotation there breaks this server outright.
+ */
 const UPNSHARE_KEY = "kiemtienmua911ca";
 const UPNSHARE_IV = "1234567890oiuytr";
 
@@ -43,7 +45,7 @@ async function extractUpnShare(embedUrl: string): Promise<VideoSource[]> {
     return [];
 }
 
-/** Its segment host answers 403 to anything not referred by the player's origin. */
+// Its segment host answers 403 to anything not referred by the player's origin.
 function upnShareHeaders(embedUrl: string): { [key: string]: string } {
     const origin = embedUrl.match(/^https?:\/\/[^/#?]+/);
 

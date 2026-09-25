@@ -4,8 +4,10 @@
 
 // ---- src/runtime.d.ts
 
-// Seanime's onlinestream provider contract.
-// The runtime supplies these; esbuild strips them while transpiling.
+/**
+ * Seanime's onlinestream provider contract.
+ * The runtime supplies these; esbuild strips them while transpiling.
+ */
 
 declare interface FetchOptions {
     method?: string;
@@ -13,7 +15,7 @@ declare interface FetchOptions {
     body?: any;
     noCloudflareBypass?: boolean;
     redirect?: "follow" | "manual" | "error";
-    /** Timeout in seconds. Defaults to 35. */
+    // Timeout in seconds. Defaults to 35.
     timeout?: number;
 }
 
@@ -31,7 +33,7 @@ declare interface FetchResponse {
 
 declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
 
-/** Key/value store the runtime shares across this extension's VMs. */
+// Key/value store the runtime shares across this extension's VMs.
 declare const $store: {
     get<T = any>(key: string): T | undefined;
     set(key: string, value: any): void;
@@ -39,13 +41,13 @@ declare const $store: {
     remove(key: string): void;
 } | undefined;
 
-/** Bytes as the runtime's CryptoJS hands them out; only its own functions read them. */
+// Bytes as the runtime's CryptoJS hands them out; only its own functions read them.
 declare interface CryptoBytes {
     readonly __cryptoBytes: never;
 }
 
 declare interface CryptoEncoder {
-    /** Yields null when the input is not valid for this encoding. */
+    // Yields null when the input is not valid for this encoding.
     parse(input: string): CryptoBytes;
     stringify(input: CryptoBytes): string;
 }
@@ -70,11 +72,13 @@ declare const CryptoJS: {
 
 // ---- src/store.ts
 
-// Long enough to cover building one episode list, short enough that a catalog
-// that just added an entry is not hidden for long.
+/**
+ * Long enough to cover building one episode list, short enough that a catalog
+ * that just added an entry is not hidden for long.
+ */
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
-/** Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there. */
+// Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there.
 function remember<T>(key: string): T | undefined {
     if (typeof $store === "undefined" || !$store) return undefined;
 
@@ -101,17 +105,21 @@ function keep(key: string, value: any): void {
 
 // ---- src/http.ts
 
-// How long a request may have been going before retrying stops being worth it.
-// Comfortably above a refused connection, far below a hung one.
+/**
+ * How long a request may have been going before retrying stops being worth it.
+ * Comfortably above a refused connection, far below a hung one.
+ */
 const RETRY_BUDGET_MS = 8000;
 
 const BROWSER_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-// What the site's own frontend sends when it fetches these endpoints. Measured
-// against sending nothing, the median response roughly halves. It does not stop
-// animeav1 dropping or hanging connections, which is a separate problem and the
-// one behind the long waits.
+/**
+ * What the site's own frontend sends when it fetches these endpoints. Measured
+ * against sending nothing, the median response roughly halves. It does not stop
+ * animeav1 dropping or hanging connections, which is a separate problem and the
+ * one behind the long waits.
+ */
 const SITE_HEADERS: { [key: string]: string } = {
     "User-Agent": BROWSER_UA,
     "Accept": "*/*",
@@ -126,9 +134,11 @@ const PLAIN_HEADERS: { [key: string]: string } = {
     "User-Agent": BROWSER_UA,
 };
 
-// The runtime exposes neither AbortController nor setTimeout, and `timeout`
-// does nothing because of the type mismatch noted above: every request runs
-// to the 35s default, so retries are worth keeping few.
+/**
+ * The runtime exposes neither AbortController nor setTimeout, and `timeout`
+ * does nothing because of the type mismatch noted above: every request runs
+ * to the 35s default, so retries are worth keeping few.
+ */
 async function fetchWithRetry(
     url: string,
     retries: number = 2,
@@ -150,14 +160,16 @@ async function fetchWithRetry(
         } catch (err) {
             lastErr = err;
 
-            // animeav1 refuses roughly one connection in six. A refusal
-            // comes back in well under a second and the next attempt
-            // usually lands, which is worth doing. A request that instead
-            // hangs holds the line until fetch gives up on it 35s later,
-            // and since the timeout option never takes effect there is no
-            // way to cut that short - trying again just spends another 35s
-            // on a host that is clearly not answering. One episode list
-            // took Seanime 1m13s that way. Spent time tells the two apart.
+            /**
+             * animeav1 refuses roughly one connection in six. A refusal
+             * comes back in well under a second and the next attempt
+             * usually lands, which is worth doing. A request that instead
+             * hangs holds the line until fetch gives up on it 35s later,
+             * and since the timeout option never takes effect there is no
+             * way to cut that short - trying again just spends another 35s
+             * on a host that is clearly not answering. One episode list
+             * took Seanime 1m13s that way. Spent time tells the two apart.
+             */
             if (Date.now() - started >= RETRY_BUDGET_MS) break;
         }
     }
@@ -167,19 +179,23 @@ async function fetchWithRetry(
 
 // ---- src/titles.ts
 
-// Words that place an entry in a series without naming it, so a title made of
-// nothing else carries no signal about which show it belongs to.
+/**
+ * Words that place an entry in a series without naming it, so a title made of
+ * nothing else carries no signal about which show it belongs to.
+ */
 const GENERIC_WORDS: { [word: string]: boolean } = {
     season: true, part: true, cour: true, movie: true, special: true,
     ova: true, ona: true, tv: true, the: true, final: true,
 };
 
-// Titles get normalised over and over while scoring - every candidate
-// against every title, several times per search. goja interprets, so the
-// regex work is worth doing once per distinct string.
+/**
+ * Titles get normalised over and over while scoring - every candidate
+ * against every title, several times per search. goja interprets, so the
+ * regex work is worth doing once per distinct string.
+ */
 const normalizedTitles: { [value: string]: string } = {};
 
-/** Lowercased, free of accents and punctuation, for comparing titles. */
+// Lowercased, free of accents and punctuation, for comparing titles.
 function normalize(value: string): string {
     const cached = normalizedTitles[value];
     if (cached !== undefined) return cached;
@@ -328,9 +344,11 @@ function narrowToBest(results: SearchResult[], titles: string[]): SearchResult[]
         }
     }
 
-    // Thresholds are for the balanced score, which runs lower than plain
-    // coverage: a right-but-wordier entry sits around 0.57 while its
-    // siblings sit near 0.33. Demand a real gap so ties stay with Seanime.
+    /**
+     * Thresholds are for the balanced score, which runs lower than plain
+     * coverage: a right-but-wordier entry sits around 0.57 while its
+     * siblings sit near 0.33. Demand a real gap so ties stay with Seanime.
+     */
     if (best && bestScore >= 0.5 && bestScore - runnerUp >= 0.08) return [best];
 
     return results;
@@ -374,9 +392,11 @@ function usableTitles(titles: (string | undefined)[]): string[] {
         const latin = stripped.replace(/[^a-zA-Z0-9]/g, "").length;
         if (latin / stripped.length < 0.7) return false;
 
-        // Keep single-word titles: plenty of shows are just "Jigokuraku".
-        // What has to go is a title left with nothing but numbering, which
-        // is what a foreign one decays into once its own script is gone.
+        /**
+         * Keep single-word titles: plenty of shows are just "Jigokuraku".
+         * What has to go is a title left with nothing but numbering, which
+         * is what a foreign one decays into once its own script is gone.
+         */
         const words = normalize(title).split(" ").filter(Boolean);
         return words.some(w => w.length >= 3 && !GENERIC_WORDS[w]);
     });
@@ -397,10 +417,12 @@ function bestScore(results: SearchResult[], titles: string[]): number {
 
 // ---- src/extractors/hls.ts
 
-// Cloudflare turns away player segments (/segs/) that do not look like they
-// came from the player itself: without Sec-Fetch-Site it answers 403, playback
-// stalls and Seanime refetches the source in a loop. Seanime's proxy replays
-// these headers on every segment, not just on the playlist.
+/**
+ * Cloudflare turns away player segments (/segs/) that do not look like they
+ * came from the player itself: without Sec-Fetch-Site it answers 403, playback
+ * stalls and Seanime refetches the source in a loop. Seanime's proxy replays
+ * these headers on every segment, not just on the playlist.
+ */
 const HLS_HEADERS: { [key: string]: string } = {
     "Referer": "https://player.zilla-networks.com/",
     "Sec-Fetch-Site": "same-origin",
@@ -411,12 +433,16 @@ const HLS_HEADERS: { [key: string]: string } = {
 
 // ---- src/extractors/mp4upload.ts
 
-// Past this, a host is not being slow, it has stopped answering: mp4upload
-// serves in well under a second or not at all. Well clear of a normal reply.
+/**
+ * Past this, a host is not being slow, it has stopped answering: mp4upload
+ * serves in well under a second or not at all. Well clear of a normal reply.
+ */
 const SLOW_HOST_MS = 6000;
 
-// Written down when mp4upload stalls, so it is passed over while this is set
-// rather than costing another 35s on the next episode. Shares SEARCH_CACHE_MS.
+/**
+ * Written down when mp4upload stalls, so it is passed over while this is set
+ * rather than costing another 35s on the next episode. Shares SEARCH_CACHE_MS.
+ */
 const MP4UPLOAD_DOWN_KEY = "av1:mp4upload:down";
 
 const MP4UPLOAD_HEADERS: { [key: string]: string } = {
@@ -477,8 +503,10 @@ const PAD_BLOCK_HEX = "10101010101010101010101010101010";
  * key still shows up as JSON that will not parse.
  */
 function decryptAesGcm(keyHex: string, ivHex: string, dataHex: string): string {
-    // GCM only counts from IV || 1 when the IV is 96 bits; any other
-    // length derives the counter through GHASH, which this does not do.
+    /**
+     * GCM only counts from IV || 1 when the IV is 96 bits; any other
+     * length derives the counter through GHASH, which this does not do.
+     */
     if (ivHex.length !== 24 || dataHex.length <= 32) return "";
 
     const key = CryptoJS.enc.Hex.parse(keyHex);
@@ -489,8 +517,10 @@ function decryptAesGcm(keyHex: string, ivHex: string, dataHex: string): string {
         // Counter IV || 1 is spent on the tag, so the payload starts at 2.
         const counter = ivHex + ("0000000" + (block + 2).toString(16)).slice(-8);
 
-        // An empty message encrypts to its padding block alone, so an IV
-        // of counter ^ padding makes that block E(counter).
+        /**
+         * An empty message encrypts to its padding block alone, so an IV
+         * of counter ^ padding makes that block E(counter).
+         */
         const keystream = CryptoJS.AES.encrypt("", key, {
             iv: CryptoJS.enc.Hex.parse(xorHex(counter, PAD_BLOCK_HEX)),
         }).toString(CryptoJS.enc.Hex);
@@ -501,7 +531,7 @@ function decryptAesGcm(keyHex: string, ivHex: string, dataHex: string): string {
     return CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Hex.parse(plain));
 }
 
-/** XORs `a` against the start of `b`, keeping `a`'s length. */
+// XORs `a` against the start of `b`, keeping `a`'s length.
 function xorHex(a: string, b: string): string {
     let out = "";
 
@@ -517,7 +547,7 @@ function base64ToHex(value: string): string {
     return CryptoJS.enc.Hex.stringify(CryptoJS.enc.Base64.parse(padBase64(value)));
 }
 
-/** Standard, padded base64, the only kind the runtime's decoder accepts. */
+// Standard, padded base64, the only kind the runtime's decoder accepts.
 function padBase64(value: string): string {
     const std = value.replace(/-/g, "+").replace(/_/g, "/");
     return std + "===".slice((std.length + 3) % 4);
@@ -525,8 +555,10 @@ function padBase64(value: string): string {
 
 // ---- src/extractors/voe.ts
 
-// Filler Voe scatters through its packed config; the payload only decodes
-// once every one of them is gone.
+/**
+ * Filler Voe scatters through its packed config; the payload only decodes
+ * once every one of them is gone.
+ */
 const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
 
 /**
@@ -538,8 +570,10 @@ async function extractVoe(embedUrl: string): Promise<VideoSource[]> {
     try {
         let html = (await fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
 
-        // voe.sx only answers with a script that sends the browser on to
-        // whichever mirror is current, not with an HTTP redirect.
+        /**
+         * voe.sx only answers with a script that sends the browser on to
+         * whichever mirror is current, not with an HTTP redirect.
+         */
         const hop = html.match(/window\.location\.href\s*=\s*'(https?:\/\/[^']+)'/);
         if (hop && html.indexOf("application/json") === -1) {
             html = (await fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();
@@ -580,8 +614,10 @@ function unpackVoe(packed: string): string {
 
 // ---- src/extractors/upnshare.ts
 
-// Fixed in UPNShare's player rather than sent per request: its API answers in
-// hex AES-128-CBC under these, so a rotation there breaks this server outright.
+/**
+ * Fixed in UPNShare's player rather than sent per request: its API answers in
+ * hex AES-128-CBC under these, so a rotation there breaks this server outright.
+ */
 const UPNSHARE_KEY = "kiemtienmua911ca";
 const UPNSHARE_IV = "1234567890oiuytr";
 
@@ -622,7 +658,7 @@ async function extractUpnShare(embedUrl: string): Promise<VideoSource[]> {
     return [];
 }
 
-/** Its segment host answers 403 to anything not referred by the player's origin. */
+// Its segment host answers 403 to anything not referred by the player's origin.
 function upnShareHeaders(embedUrl: string): { [key: string]: string } {
     const origin = embedUrl.match(/^https?:\/\/[^/#?]+/);
 
@@ -700,13 +736,15 @@ class Provider {
     private baseUrl = "https://animeav1.com";
 
     getSettings(): Settings {
-        // Seanime asks for every server listed here before it hands back any
-        // source, so all of them are resolved even when only one gets watched.
-        // HLS stays first for the episodes that still carry it; by September
-        // 2026 the site had stopped listing it, and a server an episode lacks
-        // fails at once from the cached embeds table. mp4upload goes last as
-        // the fallback, and it looks after its own stalls, so a bad spell on
-        // its side costs the fallback rather than the episode.
+        /**
+         * Seanime asks for every server listed here before it hands back any
+         * source, so all of them are resolved even when only one gets watched.
+         * HLS stays first for the episodes that still carry it; by September
+         * 2026 the site had stopped listing it, and a server an episode lacks
+         * fails at once from the cached embeds table. mp4upload goes last as
+         * the fallback, and it looks after its own stalls, so a bad spell on
+         * its side costs the fallback rather than the episode.
+         */
         return {
             episodeServers: ["HLS", "UPNShare", "Byse", "Voe", "MP4Upload"],
             supportsDub: true,
@@ -787,22 +825,28 @@ class Provider {
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
         const isDub = opts.dub || false;
-        // Every title is fair game as a search query; only the primary ones
-        // are trusted to say which entry we are looking at.
+        /**
+         * Every title is fair game as a search query; only the primary ones
+         * are trusted to say which entry we are looking at.
+         */
         const titles = mediaTitles(opts.media);
         const primary = primaryTitles(opts.media);
 
-        // Overriding Seanime is for series, where the decoy is a neighbouring
-        // season. Films number and romanise themselves however they like -
-        // "Evangelion Shin Movie: Kyuu" is the same film as "Evangelion Movie
-        // 3: Q" - and there is no season to reason about, so leave them alone.
+        /**
+         * Overriding Seanime is for series, where the decoy is a neighbouring
+         * season. Films number and romanise themselves however they like -
+         * "Evangelion Shin Movie: Kyuu" is the same film as "Evangelion Movie
+         * 3: Q" - and there is no season to reason about, so leave them alone.
+         */
         const narrow = (opts.media && opts.media.format || "").toUpperCase() !== "MOVIE";
 
-        // Seanime searches the same anime twice, once per title, and merges the
-        // two lists by id. animeav1 drops roughly one connection in six and a
-        // dropped one hangs for a quarter of a minute before it gives up, so
-        // the second search is mostly another chance to stall. Answer it from
-        // what the first one worked out.
+        /**
+         * Seanime searches the same anime twice, once per title, and merges the
+         * two lists by id. animeav1 drops roughly one connection in six and a
+         * dropped one hangs for a quarter of a minute before it gives up, so
+         * the second search is mostly another chance to stall. Answer it from
+         * what the first one worked out.
+         */
         const cacheKey = opts.media && opts.media.id
             ? `av1:media:${opts.media.id}:${isDub ? "dub" : "sub"}`
             : "";
@@ -813,11 +857,13 @@ class Provider {
         try {
             const results = await this.searchOnce(opts.query, isDub);
 
-            // The catalog is titled in romaji, so searching by english title
-            // tends to return twenty unrelated entries. Seanime picks whichever
-            // result sits closest and applies no threshold, so a list of noise
-            // still resolves to some anime, silently the wrong one. When nothing
-            // resembles what we are after, search again with the other titles.
+            /**
+             * The catalog is titled in romaji, so searching by english title
+             * tends to return twenty unrelated entries. Seanime picks whichever
+             * result sits closest and applies no threshold, so a list of noise
+             * still resolves to some anime, silently the wrong one. When nothing
+             * resembles what we are after, search again with the other titles.
+             */
             if (titles.length === 0) return results;
 
             if (bestScore(results, primary) >= 0.6) {
@@ -938,11 +984,13 @@ class Provider {
                 });
             });
 
-            // Sub is what the site always carries; a dub is the exception, and
-            // the anime's own page never says which. Settle it here rather than
-            // hand back a list whose every episode fails once Seanime asks for
-            // an audio track that was never there. Where no dub exists the
-            // episodes are handed back as sub, so the show still plays.
+            /**
+             * Sub is what the site always carries; a dub is the exception, and
+             * the anime's own page never says which. Settle it here rather than
+             * hand back a list whose every episode fails once Seanime asks for
+             * an audio track that was never there. Where no dub exists the
+             * episodes are handed back as sub, so the show still plays.
+             */
             if (type === "dub" && episodes.length > 0 && !(await this.hasDub(slug, episodes[0].number))) {
                 console.error(`AnimeAV1: ${slug} no tiene doblaje, se usa el sub`);
 
@@ -1048,8 +1096,10 @@ class Provider {
             const embeds = found.embeds;
             const category = type.toUpperCase();
 
-            // A dub can also stop partway through a run, so fall back per
-            // episode as well and play the sub rather than nothing.
+            /**
+             * A dub can also stop partway through a run, so fall back per
+             * episode as well and play the sub rather than nothing.
+             */
             let listIndex = embeds[category];
             if (typeof listIndex !== "number" && category === "DUB") {
                 listIndex = embeds["SUB"];
