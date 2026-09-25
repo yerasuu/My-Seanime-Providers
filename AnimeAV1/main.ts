@@ -134,6 +134,9 @@ const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
 const UPNSHARE_KEY = "kiemtienmua911ca";
 const UPNSHARE_IV = "1234567890oiuytr";
 
+// The one block AES.encrypt produces for an empty message: PKCS#7 padding.
+const PAD_BLOCK_HEX = "10101010101010101010101010101010";
+
 /**
  * AnimeAV1 runs on SvelteKit, so every page exposes its state at `__data.json`.
  * devalue serialises that JSON: `data` is a flat array whose objects hold
@@ -151,7 +154,7 @@ class Provider {
         // it looks after its own stalls, so a bad spell on its side costs the
         // fallback rather than the episode.
         return {
-            episodeServers: ["HLS", "UPNShare", "Voe", "MP4Upload"],
+            episodeServers: ["HLS", "UPNShare", "Byse", "Voe", "MP4Upload"],
             supportsDub: true,
         };
     }
@@ -806,6 +809,108 @@ class Provider {
         };
     }
 
+    /**
+     * Byse hands its sources out AES-256-GCM
+     * encrypted, with the key hidden among decoy `key_parts`.
+     */
+    private async extractByse(embedUrl: string): Promise<VideoSource[]> {
+        const match = embedUrl.match(/^(https?:\/\/[^/]+)\/[a-z]\/([A-Za-z0-9]+)/);
+        if (!match) return [];
+
+        try {
+            const res = await this.fetchWithRetry(`${match[1]}/api/videos/${match[2]}`, 1, PLAIN_HEADERS);
+            if (!res.ok) return [];
+
+            const playback = res.json().playback;
+            if (!playback || !Array.isArray(playback.key_parts)) return [];
+
+            const plain = this.decryptAesGcm(
+                this.byseKeyParts(playback).map((part: string) => this.base64ToHex(part)).join(""),
+                this.base64ToHex(playback.iv),
+                this.base64ToHex(playback.payload)
+            );
+            if (!plain) return [];
+
+            const sources: any[] = JSON.parse(plain).sources || [];
+
+            return sources
+                .filter(s => s && typeof s.url === "string")
+                .map((s, i) => ({
+                    url: s.url,
+                    type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
+                    quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
+                    subtitles: [],
+                }));
+        } catch (err) {
+            console.error("AnimeAV1: Byse no respondió como se esperaba:", err);
+        }
+
+        return [];
+    }
+
+    /**
+     * The player keeps only parts `version` and `31 - version` (1-based) and
+     * joins them; the rest are decoys. Outside the versions it knows, or when
+     * either index falls off the list, it joins every part instead.
+     */
+    private byseKeyParts(playback: { key_parts: string[]; version?: string }): string[] {
+        const parts = playback.key_parts;
+        const version = String(playback.version || "").trim();
+        const first = /^\d+$/.test(version) ? parseInt(version, 10) : 0;
+        const second = 31 - first;
+
+        if (first < 1 || first > 20 || first > parts.length || second > parts.length) return parts;
+
+        return [parts[first - 1], parts[second - 1]];
+    }
+
+    /**
+     * AES-GCM decryption without the tag check. The runtime's AES is CBC only,
+     * but GCM's ciphertext is plain CTR, and CBC over a single block is one raw
+     * block encryption with the IV folded in. The tag goes unchecked: a wrong
+     * key still shows up as JSON that will not parse.
+     */
+    private decryptAesGcm(keyHex: string, ivHex: string, dataHex: string): string {
+        // GCM only counts from IV || 1 when the IV is 96 bits; any other
+        // length derives the counter through GHASH, which this does not do.
+        if (ivHex.length !== 24 || dataHex.length <= 32) return "";
+
+        const key = CryptoJS.enc.Hex.parse(keyHex);
+        const body = dataHex.slice(0, -32);
+        let plain = "";
+
+        for (let block = 0; block * 32 < body.length; block++) {
+            // Counter IV || 1 is spent on the tag, so the payload starts at 2.
+            const counter = ivHex + ("0000000" + (block + 2).toString(16)).slice(-8);
+
+            // An empty message encrypts to its padding block alone, so an IV
+            // of counter ^ padding makes that block E(counter).
+            const keystream = CryptoJS.AES.encrypt("", key, {
+                iv: CryptoJS.enc.Hex.parse(this.xorHex(counter, PAD_BLOCK_HEX)),
+            }).toString(CryptoJS.enc.Hex);
+
+            plain += this.xorHex(body.slice(block * 32, block * 32 + 32), keystream);
+        }
+
+        return CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Hex.parse(plain));
+    }
+
+    /** XORs `a` against the start of `b`, keeping `a`'s length. */
+    private xorHex(a: string, b: string): string {
+        let out = "";
+
+        for (let i = 0; i < a.length; i += 2) {
+            const byte = parseInt(a.slice(i, i + 2), 16) ^ parseInt(b.slice(i, i + 2), 16);
+            out += (byte < 16 ? "0" : "") + byte.toString(16);
+        }
+
+        return out;
+    }
+
+    private base64ToHex(value: string): string {
+        return CryptoJS.enc.Hex.stringify(CryptoJS.enc.Base64.parse(this.padBase64(value)));
+    }
+
     private unpackVoe(packed: string): string {
         let text = packed.replace(/[a-zA-Z]/g, c => {
             const base = c <= "Z" ? 65 : 97;
@@ -970,6 +1075,9 @@ class Provider {
             } else if (wanted === "UPNSHARE") {
                 sources = await this.extractUpnShare(embedUrl);
                 headers = this.upnShareHeaders(embedUrl);
+            } else if (wanted === "BYSE") {
+                sources = await this.extractByse(embedUrl);
+                headers = PLAIN_HEADERS;
             } else if (wanted === "VOE") {
                 sources = await this.extractVoe(embedUrl);
                 headers = PLAIN_HEADERS;
