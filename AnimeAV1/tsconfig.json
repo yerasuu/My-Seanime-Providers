@@ -5,5 +5,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["*.ts", "../online-streaming-provider.d.ts"]
+  "include": ["src/**/*.ts", "../online-streaming-provider.d.ts"]
 }

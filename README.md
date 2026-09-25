@@ -17,3 +17,5 @@ This branch = testing ground. Unstable, unfinished, breaking changes possible an
 | [shademanga](shademanga) | manga-provider | Manga/comics provider (Shade Manga), Spanish | Use `main` branch version, not `test` |
 
 Each plugin dir has its own `manifest.json` + `main.ts` payload.
+
+AnimeAV1's `main.ts` is generated: edit `AnimeAV1/src/`, then run `node AnimeAV1/build.mjs` and commit both. Seanime loads only the payload file and never follows `/// <reference>`, so the build inlines them.
