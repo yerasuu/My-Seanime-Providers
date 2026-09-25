@@ -2,12 +2,6 @@
 
 Seanime extensions (providers/plugins) repo.
 
-## ⚠️ `test` branch
-
-This branch = testing ground. Unstable, unfinished, breaking changes possible any time.
-
-**Do not install/use plugins from this branch.** Use `main` for stable manifests/payloads.
-
 ## Plugins
 
 | Plugin | Type | Description | Notes |
