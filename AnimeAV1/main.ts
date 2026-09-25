@@ -35,6 +35,35 @@ declare const $store: {
     remove(key: string): void;
 } | undefined;
 
+/** Bytes as the runtime's CryptoJS hands them out; only its own functions read them. */
+declare interface CryptoBytes {
+    readonly __cryptoBytes: never;
+}
+
+declare interface CryptoEncoder {
+    /** Yields null when the input is not valid for this encoding. */
+    parse(input: string): CryptoBytes;
+    stringify(input: CryptoBytes): string;
+}
+
+/**
+ * Seanime's Go-backed stand-in for crypto-js, not the library itself. AES is
+ * CBC with PKCS#7 and nothing else, ciphertext goes in as standard base64, and
+ * keys and IVs must be bytes from one of the `enc` parsers.
+ */
+declare const CryptoJS: {
+    AES: {
+        encrypt(message: string, key: CryptoBytes, cfg: { iv: CryptoBytes }): { toString(encoder: CryptoEncoder): string };
+        decrypt(base64: string, key: CryptoBytes, cfg: { iv: CryptoBytes }): { toString(encoder: CryptoEncoder): string };
+    };
+    enc: {
+        Utf8: CryptoEncoder;
+        Base64: CryptoEncoder;
+        Hex: CryptoEncoder;
+        Latin1: CryptoEncoder;
+    };
+};
+
 // Long enough to cover building one episode list, short enough that a catalog
 // that just added an entry is not hidden for long.
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
@@ -92,6 +121,14 @@ const MP4UPLOAD_HEADERS: { [key: string]: string } = {
     "User-Agent": BROWSER_UA,
 };
 
+const PLAIN_HEADERS: { [key: string]: string } = {
+    "User-Agent": BROWSER_UA,
+};
+
+// Filler Voe scatters through its packed config; the payload only decodes
+// once every one of them is gone.
+const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
+
 /**
  * AnimeAV1 runs on SvelteKit, so every page exposes its state at `__data.json`.
  * devalue serialises that JSON: `data` is a flat array whose objects hold
@@ -102,13 +139,14 @@ class Provider {
 
     getSettings(): Settings {
         // Seanime asks for every server listed here before it hands back any
-        // source, so both are resolved even when only one gets watched. HLS
-        // comes first as the one that always works; mp4upload is the fallback
-        // for when the player's host is unreachable, and it looks after its own
-        // stalls, so a bad spell on its side costs the fallback rather than the
-        // episode.
+        // source, so all of them are resolved even when only one gets watched.
+        // HLS stays first for the episodes that still carry it; by September
+        // 2026 the site had stopped listing it, and a server an episode lacks fails at once
+        // from the cached embeds table. mp4upload goes last as the fallback, and
+        // it looks after its own stalls, so a bad spell on its side costs the
+        // fallback rather than the episode.
         return {
-            episodeServers: ["HLS", "MP4Upload"],
+            episodeServers: ["HLS", "Voe", "MP4Upload"],
             supportsDub: true,
         };
     }
@@ -684,6 +722,61 @@ class Provider {
     }
 
     /**
+     * Voe keeps its player config in a `<script type="application/json">`,
+     * packed as rot13, filler markers, base64, every character shifted by 3,
+     * reversed, then base64 again.
+     */
+    private async extractVoe(embedUrl: string): Promise<VideoSource[]> {
+        try {
+            let html = (await this.fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
+
+            // voe.sx only answers with a script that sends the browser on to
+            // whichever mirror is current, not with an HTTP redirect.
+            const hop = html.match(/window\.location\.href\s*=\s*'(https?:\/\/[^']+)'/);
+            if (hop && html.indexOf("application/json") === -1) {
+                html = (await this.fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();
+            }
+
+            const blob = html.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+            if (!blob) return [];
+
+            const packed = JSON.parse(blob[1]);
+            const info = JSON.parse(this.unpackVoe(Array.isArray(packed) ? packed[0] : packed));
+
+            if (info.source) return [{ url: info.source, type: "m3u8", quality: "auto", subtitles: [] }];
+            if (info.direct_access_url) {
+                return [{ url: info.direct_access_url, type: "mp4", quality: "auto", subtitles: [] }];
+            }
+        } catch (err) {
+            console.error("AnimeAV1: Voe no respondió como se esperaba:", err);
+        }
+
+        return [];
+    }
+
+    private unpackVoe(packed: string): string {
+        let text = packed.replace(/[a-zA-Z]/g, c => {
+            const base = c <= "Z" ? 65 : 97;
+            return String.fromCharCode((c.charCodeAt(0) - base + 13) % 26 + base);
+        });
+
+        for (const marker of VOE_MARKERS) text = text.split(marker).join("");
+
+        const shifted = CryptoJS.enc.Latin1.stringify(CryptoJS.enc.Base64.parse(this.padBase64(text)));
+
+        let reversed = "";
+        for (let i = shifted.length - 1; i >= 0; i--) reversed += String.fromCharCode(shifted.charCodeAt(i) - 3);
+
+        return CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(this.padBase64(reversed)));
+    }
+
+    /** Standard, padded base64, the only kind the runtime's decoder accepts. */
+    private padBase64(value: string): string {
+        const std = value.replace(/-/g, "+").replace(/_/g, "/");
+        return std + "===".slice((std.length + 3) % 4);
+    }
+
+    /**
      * An episode page's embeds table, with the array its indices point into.
      *
      * Seanime asks for one server at a time and every one of them needs this
@@ -811,28 +904,32 @@ class Provider {
                 throw new Error(`No se encontró servidor ${server} para ${type}`);
             }
 
-            let source: VideoSource | null = null;
+            let sources: VideoSource[] = [];
             let headers: { [key: string]: string } = {};
 
             if (wanted === "HLS") {
-                source = {
+                sources = [{
                     url: embedUrl.replace("/play/", "/m3u8/"),
                     type: "m3u8",
                     quality: "auto",
                     subtitles: [],
-                };
+                }];
                 headers = HLS_HEADERS;
+            } else if (wanted === "VOE") {
+                sources = await this.extractVoe(embedUrl);
+                headers = PLAIN_HEADERS;
             } else if (wanted === "MP4UPLOAD") {
-                source = await this.extractMp4Upload(embedUrl);
+                const source = await this.extractMp4Upload(embedUrl);
+                if (source) sources = [source];
                 headers = MP4UPLOAD_HEADERS;
             }
 
-            if (!source) throw new Error(`No se pudo extraer el video de ${serverName}`);
+            if (sources.length === 0) throw new Error(`No se pudo extraer el video de ${serverName}`);
 
             return {
                 server: serverName,
                 headers,
-                videoSources: [source],
+                videoSources: sources,
             };
         } catch (err) {
             console.error("Error finding episode server:", err);
