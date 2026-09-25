@@ -1,0 +1,13 @@
+{
+  "id": "animeav1test",
+  "name": "AnimeAV1 Testing",
+  "version": "1.10.0",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/AnimeAV1/manifest.json",
+  "language": "typescript",
+  "type": "onlinestream-provider",
+  "description": "Online streaming provider with hard subs and dubs in Spanish.",
+  "author": "jabifx, yerasuu & Pal",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/AnimeAV1/icon.png",
+  "lang": "es",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/AnimeAV1/main.ts"
+}

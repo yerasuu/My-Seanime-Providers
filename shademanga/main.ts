@@ -1,34 +1,33 @@
-interface Settings {
-    supportsMultiLanguage: boolean;
-    supportsMultiScanlator: boolean;
+/// <reference path="../manga-provider.d.ts" />
+
+// Seanime's manga provider contract.
+// The runtime supplies these; esbuild strips them while transpiling.
+
+declare interface FetchOptions {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: any;
+    noCloudflareBypass?: boolean;
+    redirect?: "follow" | "manual" | "error";
+    /** Timeout in seconds. Defaults to 35. */
+    timeout?: number;
 }
 
-interface QueryOptions {
-    query: string;
-}
-
-interface SearchResult {
-    id: string;
-    title: string;
-    image?: string;
-}
-
-interface ChapterDetails {
-    id: string;
+declare interface FetchResponse {
+    status: number;
+    statusText: string;
+    ok: boolean;
     url: string;
-    title: string;
-    chapter: string;
-    index: number;
-    language: string;
-    scanlator: string;
-}
-
-interface ChapterPage {
-    url: string;
-    index: number;
     headers: Record<string, string>;
+
+    text(): string;
+
+    json<T = any>(): T;
 }
 
+declare function fetch(url: string, options?: FetchOptions): Promise<FetchResponse>;
+
+/** ShadeManga API responses. */
 interface ScanGroup {
     id: number;
     nombre: string;
@@ -41,12 +40,14 @@ interface ApiSearchItem {
     id: number;
     titulo: string;
     portadaUrl?: string;
+    titulosAlternativos?: string;
 }
 
 interface ApiChapterItem {
     id: number;
     publicId: string;
     numeroCapitulo: number;
+    titulo?: string;
     grupoScan?: ScanGroup;
 }
 
@@ -54,16 +55,21 @@ interface ApiPagesResponse {
     paginas: string[];
 }
 
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+// The contract asks that compound ids not be joined with a slash.
+const ID_SEPARATOR = "$";
 
 class Provider {
-    private web = "https://shademanga.com"
-    private api = "https://shademanga.com/api"
+    private web = "https://shademanga.com";
+    private api = "https://shademanga.com/api";
+
     getSettings(): Settings {
         return {
             supportsMultiLanguage: false,
             supportsMultiScanlator: false,
-        }
+        };
     }
 
     private buildHeaders(referer: string): Record<string, string> {
@@ -71,13 +77,28 @@ class Provider {
             "User-Agent": USER_AGENT,
             "Accept": "application/json",
             "Referer": referer,
-        }
+        };
     }
 
-    async fetchWithHeaders(url: string, baseApi?: string) {
-        return fetch(url, {
-            headers: this.buildHeaders(baseApi || this.web)
-        })
+    private async fetchWithRetry(url: string, referer?: string, retries: number = 2): Promise<FetchResponse> {
+        let lastErr: unknown = null;
+
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const res = await fetch(url, {
+                    headers: this.buildHeaders(referer || this.web),
+                    timeout: 15,
+                });
+
+                if (res.status >= 500 && attempt < retries) continue;
+
+                return res;
+            } catch (err) {
+                lastErr = err;
+            }
+        }
+
+        throw lastErr ?? new Error(`No se pudo conectar con ${url}`);
     }
 
     async search(opts: QueryOptions): Promise<SearchResult[]> {
@@ -85,102 +106,111 @@ class Provider {
         const url = `${this.api}/series-locales/search-candidates?q=${query}&includeAdult=true&showSinPortada=false&take=120`;
 
         try {
-            const response = await this.fetchWithHeaders(url);
-            if (!response.ok) {
-                return [];
-            }
+            const res = await this.fetchWithRetry(url);
+            if (!res.ok) return [];
 
-            const series: ApiSearchItem[] = await response.json();
+            const series = res.json<ApiSearchItem[]>();
+            if (!Array.isArray(series)) return [];
+
             const results: SearchResult[] = [];
 
             for (const item of series) {
-                if (item.id && item.titulo) {
-                    results.push({
-                        id: String(item.id),
-                        title: item.titulo,
-                        image: item.portadaUrl || "",
-                    });
-                }
+                if (!item || !item.id || !item.titulo) continue;
+
+                // titulosAlternativos arrives as "Wan Pis, OP, ワンピース"; it helps matching.
+                const synonyms = (item.titulosAlternativos || "")
+                    .split(",")
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+
+                const result: SearchResult = {
+                    id: String(item.id),
+                    title: item.titulo,
+                };
+
+                if (item.portadaUrl) result.image = item.portadaUrl;
+                if (synonyms.length > 0) result.synonyms = synonyms;
+
+                results.push(result);
             }
 
             return results;
-        } catch (e) {
+        } catch (err) {
+            console.error("Error searching ShadeManga:", err);
             return [];
         }
     }
 
-    async findChapters(mangaId: string): Promise<ChapterDetails[]> {
-        const chapters: ChapterDetails[] = [];
-        const url = `${this.api}/series-locales/${mangaId}/capitulos`;
+    async findChapters(id: string): Promise<ChapterDetails[]> {
+        const url = `${this.api}/series-locales/${id}/capitulos`;
 
         try {
-            const response = await this.fetchWithHeaders(url, this.api);
-            if (!response.ok) {
-                return [];
-            }
+            const res = await this.fetchWithRetry(url, this.api);
+            if (!res.ok) return [];
 
-            const chapterList: ApiChapterItem[] = await response.json();
+            const chapterList = res.json<ApiChapterItem[]>();
+            if (!Array.isArray(chapterList)) return [];
 
-            for (let index = 0; index < chapterList.length; index++) {
-                const chapter = chapterList[index];
-                const chapterId = chapter.publicId;
-                const chapterNum = chapter.numeroCapitulo;
+            const chapters: ChapterDetails[] = [];
 
-                if (chapterId && chapterNum) {
-                    chapters.push({
-                        id: `${mangaId}/${chapterId}`,
-                        url: `${this.api}/series-locales/${mangaId}/capitulos/${chapterId}/paginas`,
-                        title: `Capítulo ${chapterNum}`,
-                        chapter: String(chapterNum),
-                        index,
-                        language: "es",
-                        scanlator: chapter.grupoScan?.nombre || "Unknown"
-                    });
-                }
+            for (const item of chapterList) {
+                if (!item || !item.publicId) continue;
+
+                // numeroCapitulo is 0 for prologues, so test the type rather than truthiness.
+                const number = item.numeroCapitulo;
+                if (typeof number !== "number") continue;
+
+                chapters.push({
+                    id: `${id}${ID_SEPARATOR}${item.publicId}`,
+                    url: `${this.api}/series-locales/${id}/capitulos/${item.publicId}/paginas`,
+                    title: item.titulo || `Capítulo ${number}`,
+                    chapter: String(number),
+                    index: chapters.length,
+                });
             }
 
             return chapters;
-        } catch (e) {
+        } catch (err) {
+            console.error("Error finding ShadeManga chapters:", err);
             return [];
         }
     }
 
-    async findChapterPages(chapterId: string): Promise<ChapterPage[]> {
-        const parts = chapterId.split('/');
-        const mangaId = parts[parts.length - 2];
-        const publicChapterId = parts[parts.length - 1];
+    async findChapterPages(id: string): Promise<ChapterPage[]> {
+        // Older ids joined the keys with "/", so keep parsing those too.
+        const parts = id.split(id.indexOf(ID_SEPARATOR) !== -1 ? ID_SEPARATOR : "/");
+        if (parts.length < 2) return [];
 
-        const apiUrl = `${this.api}/series-locales/${mangaId}/capitulos/${publicChapterId}/paginas`;
+        const mangaId = parts[parts.length - 2];
+        const chapterId = parts[parts.length - 1];
+
+        const url = `${this.api}/series-locales/${mangaId}/capitulos/${chapterId}/paginas`;
 
         try {
-            const response = await this.fetchWithHeaders(apiUrl, this.api);
-            if (!response.ok) {
-                return [];
-            }
+            const res = await this.fetchWithRetry(url, this.api);
+            if (!res.ok) return [];
 
-            const data: ApiPagesResponse = await response.json();
+            const data = res.json<ApiPagesResponse>();
+            if (!data || !Array.isArray(data.paginas)) return [];
+
             const pages: ChapterPage[] = [];
 
-            if (!Array.isArray(data.paginas)) {
-                return [];
-            }
+            for (const pageUrl of data.paginas) {
+                if (typeof pageUrl !== "string" || pageUrl.length === 0) continue;
 
-            for (let index = 0; index < data.paginas.length; index++) {
-                const pageUrl = data.paginas[index];
-                if (typeof pageUrl === 'string' && pageUrl.length > 0) {
-                    pages.push({
-                        url: pageUrl,
-                        index,
-                        headers: {
-                            "Referer": this.api,
-                            "User-Agent": USER_AGENT
-                        }
-                    });
-                }
+                pages.push({
+                    url: pageUrl,
+                    index: pages.length,
+                    headers: {
+                        "Referer": this.api,
+                        "User-Agent": USER_AGENT,
+                    },
+                });
             }
 
             return pages;
-        } catch (e) {
+        } catch (err) {
+            console.error("Error finding ShadeManga chapter pages:", err);
             return [];
         }
     }
