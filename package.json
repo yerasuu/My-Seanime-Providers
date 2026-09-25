@@ -2,8 +2,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node AnimeAV1/build.mjs",
-    "check": "node AnimeAV1/build.mjs --check"
+    "build": "node build.mjs",
+    "check": "node build.mjs --check"
   },
   "devDependencies": {
     "typescript": "5.9.3"

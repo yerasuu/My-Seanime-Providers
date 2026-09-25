@@ -13,4 +13,4 @@ Seanime extensions (providers/plugins) repo.
 
 Each plugin dir has its own `manifest.json` + `main.ts` payload.
 
-AnimeAV1's `main.ts` is generated: edit `AnimeAV1/src/`, then run `npm install` once and `npm run build`, and commit both. Seanime loads only the payload file and never follows `/// <reference>`, so the build inlines them and reprints the result without comments. `npm run check` fails when `main.ts` is out of date.
+A plugin with a `src/` directory (today only AnimeAV1) has a generated `main.ts`: edit `src/`, then from the repo root run `npm install` once and `npm run build`, and commit both. `node build.mjs AnimeAV1` builds just that plugin. Seanime loads only the payload file and never follows `/// <reference>`, so the build inlines them and reprints the result without comments. `npm run check` fails when `main.ts` is out of date.
