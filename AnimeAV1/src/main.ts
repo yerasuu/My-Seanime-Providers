@@ -2,6 +2,7 @@
 /// <reference path="store.ts" />
 /// <reference path="http.ts" />
 /// <reference path="titles.ts" />
+/// <reference path="servers.ts" />
 /// <reference path="extractors/hls.ts" />
 /// <reference path="extractors/mp4upload.ts" />
 /// <reference path="extractors/voe.ts" />
@@ -369,6 +370,18 @@ class Provider {
             throw new Error("ID inválido");
         }
 
+        // Fetched once up front, otherwise every server resolving at once fetches it too.
+        await this.episodeEmbeds(slug, number);
+
+        return resolveServers(
+            `av1:servers:${slug}:${number}:${type}`,
+            this.getSettings().episodeServers,
+            server,
+            name => this.resolveServer(slug, number, type, name)
+        );
+    }
+
+    private async resolveServer(slug: string, number: number, type: SubOrDub, server: string): Promise<EpisodeServer> {
         try {
             const found = await this.episodeEmbeds(slug, number);
             if (!found) throw new Error("No se encontraron servidores");
