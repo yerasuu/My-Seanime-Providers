@@ -140,7 +140,7 @@ declare const CryptoJS: {
 
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
-function remember<T>(key: string): T | undefined {
+function remember<T>(key: string, maxAge: number = SEARCH_CACHE_MS): T | undefined {
     if (typeof $store === "undefined" || !$store)
         return undefined;
     try {
@@ -148,7 +148,7 @@ function remember<T>(key: string): T | undefined {
             at: number;
             value: T;
         }>(key);
-        if (hit && hit.value !== undefined && Date.now() - hit.at < SEARCH_CACHE_MS)
+        if (hit && hit.value !== undefined && Date.now() - hit.at < maxAge)
             return hit.value;
     }
     catch (err) {
@@ -475,13 +475,36 @@ function padBase64(value: string): string {
 
 const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
 
+const VOE_MIRROR_KEY = "av1:voe:mirror";
+
+const VOE_MIRROR_MS = 24 * 60 * 60 * 1000;
+
 async function extractVoe(embedUrl: string): Promise<VideoSource[]> {
     try {
+        const id = embedUrl.match(/\/e\/([A-Za-z0-9]+)/);
+        const mirror = remember<string>(VOE_MIRROR_KEY, VOE_MIRROR_MS);
+        if (id && mirror) {
+            const html = await fetchWithRetry(`${mirror}/e/${id[1]}`, 0, PLAIN_HEADERS).then(res => res.text(), () => "");
+            const sources = voeSources(html);
+            if (sources.length > 0)
+                return sources;
+        }
         let html = (await fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
-        const hop = html.match(/window\.location\.href\s*=\s*'(https?:\/\/[^']+)'/);
+        const hop = html.match(/window\.location\.href\s*=\s*'((https?:\/\/[^/']+)[^']*)'/);
         if (hop && html.indexOf("application/json") === -1) {
             html = (await fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();
+            keep(VOE_MIRROR_KEY, hop[2]);
         }
+        return voeSources(html);
+    }
+    catch (err) {
+        console.error("AnimeAV1: Voe no respondió como se esperaba:", err);
+    }
+    return [];
+}
+
+function voeSources(html: string): VideoSource[] {
+    try {
         const blob = html.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
         if (!blob)
             return [];

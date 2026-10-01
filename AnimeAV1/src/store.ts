@@ -6,14 +6,14 @@
  */
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
-// Reads a value stored less than SEARCH_CACHE_MS ago, if the store is there.
-function remember<T>(key: string): T | undefined {
+// Reads a value stored less than `maxAge` ago, if the store is there.
+function remember<T>(key: string, maxAge: number = SEARCH_CACHE_MS): T | undefined {
     if (typeof $store === "undefined" || !$store) return undefined;
 
     try {
         // Compare against undefined: a cached false is still an answer.
         const hit = $store.get<{ at: number; value: T }>(key);
-        if (hit && hit.value !== undefined && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.value;
+        if (hit && hit.value !== undefined && Date.now() - hit.at < maxAge) return hit.value;
     } catch (err) {
         // A store that misbehaves must not take the search down with it.
     }

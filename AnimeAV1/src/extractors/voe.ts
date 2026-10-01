@@ -1,5 +1,6 @@
 /// <reference path="../http.ts" />
 /// <reference path="../crypto.ts" />
+/// <reference path="../store.ts" />
 
 /**
  * Filler Voe scatters through its packed config; the payload only decodes
@@ -8,23 +9,49 @@
 const VOE_MARKERS = ["@$", "^^", "~@", "%?", "*~", "!!", "#&"];
 
 /**
+ * voe.sx only answers with a script that sends the browser on to whichever
+ * mirror is current, not with an HTTP redirect, so every video costs two
+ * round trips. The mirror is the same for every video and changes rarely,
+ * so remember it and go straight there.
+ */
+const VOE_MIRROR_KEY = "av1:voe:mirror";
+const VOE_MIRROR_MS = 24 * 60 * 60 * 1000;
+
+async function extractVoe(embedUrl: string): Promise<VideoSource[]> {
+    try {
+        const id = embedUrl.match(/\/e\/([A-Za-z0-9]+)/);
+        const mirror = remember<string>(VOE_MIRROR_KEY, VOE_MIRROR_MS);
+
+        // A mirror that has since been retired, even one that no longer resolves, falls through to voe.sx below.
+        if (id && mirror) {
+            const html = await fetchWithRetry(`${mirror}/e/${id[1]}`, 0, PLAIN_HEADERS).then(res => res.text(), () => "");
+            const sources = voeSources(html);
+            if (sources.length > 0) return sources;
+        }
+
+        let html = (await fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
+
+        const hop = html.match(/window\.location\.href\s*=\s*'((https?:\/\/[^/']+)[^']*)'/);
+        if (hop && html.indexOf("application/json") === -1) {
+            html = (await fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();
+            keep(VOE_MIRROR_KEY, hop[2]);
+        }
+
+        return voeSources(html);
+    } catch (err) {
+        console.error("AnimeAV1: Voe no respondió como se esperaba:", err);
+    }
+
+    return [];
+}
+
+/**
  * Voe keeps its player config in a `<script type="application/json">`,
  * packed as rot13, filler markers, base64, every character shifted by 3,
  * reversed, then base64 again.
  */
-async function extractVoe(embedUrl: string): Promise<VideoSource[]> {
+function voeSources(html: string): VideoSource[] {
     try {
-        let html = (await fetchWithRetry(embedUrl, 1, PLAIN_HEADERS)).text();
-
-        /**
-         * voe.sx only answers with a script that sends the browser on to
-         * whichever mirror is current, not with an HTTP redirect.
-         */
-        const hop = html.match(/window\.location\.href\s*=\s*'(https?:\/\/[^']+)'/);
-        if (hop && html.indexOf("application/json") === -1) {
-            html = (await fetchWithRetry(hop[1], 1, PLAIN_HEADERS)).text();
-        }
-
         const blob = html.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
         if (!blob) return [];
 
