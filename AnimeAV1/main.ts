@@ -1,6 +1,7 @@
 // Generated from src/ by build.mjs on 2026-10-26 - edit those files, not this one.
 
 /// <reference path="../online-streaming-provider.d.ts" />
+/// <reference path="../core.d.ts" />
 
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
 
