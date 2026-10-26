@@ -1,4 +1,4 @@
-// Copy of https://raw.githubusercontent.com/Seanime-contributions/Seanime-Providers/refs/heads/main/src/core.d.ts - refresh it from there, do not edit.
+// Copy of Seanime's own core.d.ts, https://raw.githubusercontent.com/5rahim/seanime/main/internal/extension_repo/goja_plugin_types/core.d.ts - refresh it from there, do not edit.
 /**
  * Is offline
  */
