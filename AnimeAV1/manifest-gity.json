@@ -7,7 +7,7 @@
   "type": "onlinestream-provider",
   "description": "Online streaming provider with hard subs and dubs in Spanish.",
   "author": "jabifx, yerasuu & Pal",
-  "icon": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/AnimeAV1/icon.png",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test/AnimeAV1/icon.png",
   "lang": "es",
   "payloadURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/AnimeAV1/main.ts"
 }
