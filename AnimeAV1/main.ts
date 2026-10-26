@@ -1,4 +1,4 @@
-// Generated from src/ by build.mjs - edit those files, not this one.
+// Generated from src/ by build.mjs on 2026-10-26 - edit those files, not this one.
 
 declare type SearchResult = {
     id: string;
