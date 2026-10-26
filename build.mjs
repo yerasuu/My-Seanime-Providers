@@ -10,7 +10,7 @@
 //   node build.mjs [plugin...] --check  fails when a main.ts is out of date with its src/
 
 import { access, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -18,7 +18,10 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 const REFERENCE = /^\/\/\/ <reference path="([^"]+)" \/>\n+/gm;
 
-async function inline(file, inlined) {
+// Shared declarations at the repo root stay a `/// <reference>` in the payload instead of being inlined.
+const isShared = file => dirname(file) === root && file.endsWith(".d.ts");
+
+async function inline(file, inlined, shared) {
     if (inlined.has(file)) return "";
     inlined.add(file);
 
@@ -26,7 +29,9 @@ async function inline(file, inlined) {
     const parts = [];
 
     for (const [, path] of text.matchAll(REFERENCE)) {
-        parts.push(await inline(resolve(dirname(file), path), inlined));
+        const target = resolve(dirname(file), path);
+        if (isShared(target)) shared.add(target);
+        else parts.push(await inline(target, inlined, shared));
     }
 
     parts.push(text.replace(REFERENCE, "").trimEnd() + "\n");
@@ -83,7 +88,10 @@ for (const plugin of await plugins(named)) {
     }
 
     const out = join(root, plugin, "main.ts");
-    const body = `${condense(await inline(join(root, plugin, "src", "main.ts"), new Set()))}\n`;
+    const shared = new Set();
+    const inlined = condense(await inline(join(root, plugin, "src", "main.ts"), new Set(), shared));
+    const references = [...shared].map(file => `/// <reference path="${relative(join(root, plugin), file)}" />\n`).join("");
+    const body = `${references}${references ? "\n" : ""}${inlined}\n`;
     const existing = await readFile(out, "utf8").catch(() => "");
     const current = withoutHeader(existing);
     const dated = /^\/\/ Generated from src\/ by build\.mjs on \d{4}-\d{2}-\d{2} /.test(existing);
