@@ -63,6 +63,15 @@ async function plugins(named) {
     return found.filter(Boolean);
 }
 
+function header(date) {
+    return `// Generated from src/ by build.mjs on ${date.toISOString().slice(0, 10)} - edit those files, not this one.`;
+}
+
+// Drops the generated header line, dated or from before dates were added, and the blank line after it.
+function withoutHeader(text) {
+    return text.replace(/^\/\/ Generated from src\/ by build\.mjs[^\n]*\n\n/, "");
+}
+
 const check = process.argv.includes("--check");
 const named = process.argv.slice(2).filter(arg => arg !== "--check");
 let stale = false;
@@ -74,12 +83,15 @@ for (const plugin of await plugins(named)) {
     }
 
     const out = join(root, plugin, "main.ts");
-    const body = condense(await inline(join(root, plugin, "src", "main.ts"), new Set()));
-    const bundle = `// Generated from src/ by build.mjs - edit those files, not this one.\n\n${body}\n`;
+    const body = `${condense(await inline(join(root, plugin, "src", "main.ts"), new Set()))}\n`;
+    const existing = await readFile(out, "utf8").catch(() => "");
+    const current = withoutHeader(existing);
+    const dated = /^\/\/ Generated from src\/ by build\.mjs on \d{4}-\d{2}-\d{2} /.test(existing);
 
+    // The date is when the payload last changed, so an unchanged rebuild keeps the old one and --check never goes stale with the calendar.
     if (!check) {
-        await writeFile(out, bundle);
-    } else if ((await readFile(out, "utf8").catch(() => "")) !== bundle) {
+        if (current !== body || !dated) await writeFile(out, `${header(new Date())}\n\n${body}`);
+    } else if (current !== body) {
         process.stderr.write(`${plugin}/main.ts is out of date with src/, run: npm run build\n`);
         stale = true;
     }
