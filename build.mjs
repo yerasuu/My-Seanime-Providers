@@ -4,13 +4,13 @@
 // The payload is reprinted by TypeScript's own printer without comments, so it
 // stays TypeScript and readable while carrying only what runs.
 //
-// Every plugin directory with a src/main.ts is built, or only those named.
+// Every plugin directory under src/ with its own src/main.ts is built, or only those named.
 //
-//   node build.mjs [plugin...]          writes <plugin>/main.ts
+//   node build.mjs [plugin...]          writes src/<category>/<plugin>/main.ts
 //   node build.mjs [plugin...] --check  fails when a main.ts is out of date with its src/
 
 import { access, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -18,10 +18,13 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 const REFERENCE = /^\/\/\/ <reference path="([^"]+)" \/>\n+/gm;
 
-// Shared declarations at the repo root stay a `/// <reference>` in the payload instead of being inlined.
-const isShared = file => dirname(file) === root && file.endsWith(".d.ts");
+// Plugins live at src/<category>/<name>, beside the .d.ts files shared by the repo (src/core.d.ts, src/<category>/*.d.ts).
+const sourceRoot = join(root, "src");
 
-async function inline(file, inlined, shared) {
+// A .d.ts outside the plugin's own directory is shared and stays a `/// <reference>` in the payload instead of being inlined.
+const isShared = (file, pluginDir) => file.endsWith(".d.ts") && relative(pluginDir, file).startsWith("..");
+
+async function inline(file, inlined, shared, pluginDir) {
     if (inlined.has(file)) return "";
     inlined.add(file);
 
@@ -30,8 +33,12 @@ async function inline(file, inlined, shared) {
 
     for (const [, path] of text.matchAll(REFERENCE)) {
         const target = resolve(dirname(file), path);
-        if (isShared(target)) shared.add(target);
-        else parts.push(await inline(target, inlined, shared));
+        if (isShared(target, pluginDir)) {
+            // A shared declaration is never read, so a wrong path would only surface in the editor.
+            await access(target);
+            shared.add(target);
+        }
+        else parts.push(await inline(target, inlined, shared, pluginDir));
     }
 
     parts.push(text.replace(REFERENCE, "").trimEnd() + "\n");
@@ -58,18 +65,39 @@ function condense(source) {
         .join("\n\n");
 }
 
-async function hasSources(plugin) {
-    return access(join(root, plugin, "src", "main.ts")).then(() => true, () => false);
+async function hasSources(dir) {
+    return access(join(dir, "src", "main.ts")).then(() => true, () => false);
+}
+
+// Every directory under src/ that has its own src/main.ts, as an absolute path.
+async function findPlugins(dir) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const found = [];
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const child = join(dir, entry.name);
+        if (await hasSources(child)) found.push(child);
+        else found.push(...(await findPlugins(child)));
+    }
+
+    return found;
 }
 
 async function plugins(named) {
-    if (named.length > 0) return named;
+    const all = await findPlugins(sourceRoot);
+    if (named.length === 0) return all;
 
-    const entries = await readdir(root, { withFileTypes: true });
-    const dirs = entries.filter(entry => entry.isDirectory() && entry.name !== "node_modules");
-    const found = await Promise.all(dirs.map(async dir => ((await hasSources(dir.name)) ? dir.name : null)));
-
-    return found.filter(Boolean);
+    // A name is the plugin's directory name or its path below src/, e.g. AnimeAV1 or anime/AnimeAV1.
+    return named.map(name => {
+        const match = all.find(dir => basename(dir) === name || relative(sourceRoot, dir) === name);
+        if (!match) {
+            process.stderr.write(`${name}: no plugin with a src/main.ts under src/\n`);
+            process.exit(1);
+        }
+        return match;
+    });
 }
 
 function header(date) {
@@ -85,16 +113,12 @@ const check = process.argv.includes("--check");
 const named = process.argv.slice(2).filter(arg => arg !== "--check");
 let stale = false;
 
-for (const plugin of await plugins(named)) {
-    if (!(await hasSources(plugin))) {
-        process.stderr.write(`${plugin}: no src/main.ts to build\n`);
-        process.exit(1);
-    }
-
-    const out = join(root, plugin, "main.ts");
+for (const pluginDir of await plugins(named)) {
+    const plugin = relative(root, pluginDir);
+    const out = join(pluginDir, "main.ts");
     const shared = new Set();
-    const inlined = condense(await inline(join(root, plugin, "src", "main.ts"), new Set(), shared));
-    const references = [...shared].map(file => `/// <reference path="${relative(join(root, plugin), file)}" />\n`).join("");
+    const inlined = condense(await inline(join(pluginDir, "src", "main.ts"), new Set(), shared, pluginDir));
+    const references = [...shared].map(file => `/// <reference path="${relative(pluginDir, file)}" />\n`).join("");
     const body = `${references}${references ? "\n" : ""}${inlined}\n`;
     const existing = await readFile(out, "utf8").catch(() => "");
     const current = withoutHeader(existing);
