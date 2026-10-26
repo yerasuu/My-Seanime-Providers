@@ -1,4 +1,4 @@
-/// <reference path="../../core.d.ts" />
+/// <reference path="../../../core.d.ts" />
 
 /**
  * What core.d.ts, Seanime's own declarations, leaves out.
