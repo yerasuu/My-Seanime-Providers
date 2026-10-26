@@ -586,20 +586,42 @@ async function extractByse(embedUrl: string): Promise<VideoSource[]> {
         const plain = decryptAesGcm(byseKeyParts(playback).map((part: string) => base64ToHex(part)).join(""), base64ToHex(playback.iv), base64ToHex(playback.payload));
         if (!plain)
             return [];
-        const sources: any[] = JSON.parse(plain).sources || [];
-        return sources
-            .filter(s => s && typeof s.url === "string")
-            .map((s, i) => ({
-            url: s.url,
-            type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
-            quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
-            subtitles: [],
-        }));
+        const sources: any[] = (JSON.parse(plain).sources || []).filter((s: any) => s && typeof s.url === "string");
+        const urls = await Promise.all(sources.map(s => reachableByseUrl(s.url)));
+        const found: VideoSource[] = [];
+        sources.forEach((s, i) => {
+            const url = urls[i];
+            if (!url)
+                return;
+            found.push({
+                url,
+                type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
+                quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
+                subtitles: [],
+            });
+        });
+        return found;
     }
     catch (err) {
         console.error("AnimeAV1: Byse no respondió como se esperaba:", err);
     }
     return [];
+}
+
+const BYSE_FALLBACK_EDGES = ["https://edge1-frankfurt-sprintcdn.owphbf24.com"];
+
+async function reachableByseUrl(url: string): Promise<string | null> {
+    const origin = url.match(/^https?:\/\/[^/]+/);
+    if (!origin)
+        return url;
+    const path = url.slice(origin[0].length);
+    for (const edge of [origin[0], ...BYSE_FALLBACK_EDGES.filter(e => e !== origin[0])]) {
+        const answered = await fetchWithRetry(edge + path, 0, PLAIN_HEADERS).then(res => res.ok, () => false);
+        if (answered)
+            return edge + path;
+    }
+    console.error(`AnimeAV1: ningún edge de Byse responde para ${origin[0]}`);
+    return null;
 }
 
 function byseKeyParts(playback: {
