@@ -43,7 +43,11 @@ function condense(source) {
     const file = ts.createSourceFile("main.ts", source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS);
     const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
 
+    // The runtime supplies every ambient `declare` and Seanime strips them while transpiling, so the payload drops them.
+    const isAmbient = statement => ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.DeclareKeyword);
+
     return file.statements
+        .filter(statement => !isAmbient(statement))
         .map(statement => {
             const printed = printer.printNode(ts.EmitHint.Unspecified, statement, file);
             if (!ts.isClassDeclaration(statement)) return printed;
