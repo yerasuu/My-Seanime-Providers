@@ -80,7 +80,11 @@ async function resolveServers(
             const alternative = held[server];
             if (alternative && alternative.found) {
                 console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${server}`);
-                return alternative.found;
+
+                // Seanime keeps the server the viewer picked by name, so an answer
+                // under another name leaves the player waiting on one that never comes.
+                const asked = servers.find(name => name.toUpperCase() === wanted);
+                return { ...alternative.found, server: asked || alternative.found.server };
             }
         }
     }
