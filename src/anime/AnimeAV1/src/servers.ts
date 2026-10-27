@@ -58,5 +58,21 @@ async function resolveServers(
     const outcome = held[wanted];
     if (outcome && outcome.found) return outcome.found;
 
+    /**
+     * A server that has lost this episode (UPNShare answers 404 for a
+     * removed video) would otherwise leave the player with an error while
+     * others in the same round resolved fine. Only a known server falls
+     * back, in the order listed, so a mistyped name still fails.
+     */
+    if (outcome) {
+        for (const server of servers) {
+            const alternative = held[server];
+            if (alternative && alternative.found) {
+                console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${server}`);
+                return alternative.found;
+            }
+        }
+    }
+
     throw new Error(outcome && outcome.error || `Servidor desconocido: ${wanted}`);
 }
