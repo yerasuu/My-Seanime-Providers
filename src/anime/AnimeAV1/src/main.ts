@@ -99,7 +99,9 @@ class Provider {
         if (!res.ok) return [];
 
         const results = this._resolveRemixData(res.json(), isDub);
-        keep(key, results);
+
+        // An empty list is more often a hiccup than a real miss, and remembering it would hide the anime for minutes.
+        if (results.length > 0) keep(key, results);
 
         return results;
     }
@@ -151,7 +153,7 @@ class Provider {
             if (bestScore(results, primary) >= 0.6) {
                 const kept = dropOtherSeasons(results, titles);
                 const picked = narrow ? narrowToBest(kept, primary) : kept;
-                if (cacheKey) keep(cacheKey, picked);
+                if (cacheKey && picked.length > 0) keep(cacheKey, picked);
                 return picked;
             }
 
@@ -183,7 +185,7 @@ class Provider {
 
             const kept = dropOtherSeasons(merged, titles);
             const picked = narrow ? narrowToBest(kept, primary) : kept;
-            if (cacheKey) keep(cacheKey, picked);
+            if (cacheKey && picked.length > 0) keep(cacheKey, picked);
             return picked;
         } catch (err) {
             console.error("Error searching AnimeAV1:", err);
@@ -316,7 +318,9 @@ class Provider {
 
             if (root) {
                 const found = { data: node.data, embeds: node.data[root.embeds] || {} };
-                keep(key, found);
+
+                // A page that lists no embeds is not worth remembering: every server would fail on it until the entry expired.
+                if (Object.keys(found.embeds).length > 0) keep(key, found);
                 return found;
             }
         }
@@ -340,6 +344,11 @@ class Provider {
      * dub exists or not - so it takes looking at an episode. Worth the one
      * request: without it Seanime lists every episode, then fails on each one
      * in turn as it asks for an audio track that was never there.
+     *
+     * When the page cannot be read the answer is unknown, and unknown counts
+     * as dubbed: resolveServer already plays the sub for an episode that lacks
+     * the dub, whereas guessing "no dub" would swap the audio for a request
+     * that merely failed, and a throw here would lose the whole episode list.
      */
     private async hasDub(slug: string, number: number): Promise<boolean> {
         const key = `av1:dub:${slug}`;
@@ -347,7 +356,17 @@ class Provider {
         const cached = remember<boolean>(key);
         if (cached !== undefined) return cached;
 
-        const dubbed = (await this.audioTracks(slug, number)).indexOf("DUB") !== -1;
+        let tracks: string[];
+
+        try {
+            tracks = await this.audioTracks(slug, number);
+        } catch (err) {
+            return true;
+        }
+
+        if (tracks.length === 0) return true;
+
+        const dubbed = tracks.indexOf("DUB") !== -1;
 
         keep(key, dubbed);
         return dubbed;

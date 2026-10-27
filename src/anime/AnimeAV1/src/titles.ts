@@ -100,9 +100,13 @@ function seasonOrdinal(title: string): number {
     const trailing = text.match(/\bseason\s+(\d+)\b/);
     if (trailing) return parseInt(trailing[1], 10);
 
-    const roman = text.match(/\s(v?i{1,3})$/);
+    /**
+     * A lone "i" is left out: it is as likely a stray letter as a first
+     * season, and a first season rarely carries a numeral anyway.
+     */
+    const roman = text.match(/\s(ii|iii|iv|vi|v)$/);
     if (roman) {
-        const map: { [key: string]: number } = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6 };
+        const map: { [key: string]: number } = { ii: 2, iii: 3, iv: 4, v: 5, vi: 6 };
         return map[roman[1]] || 0;
     }
 
