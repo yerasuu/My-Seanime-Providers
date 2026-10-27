@@ -27,7 +27,10 @@ async function extractUpnShare(embedUrl: string): Promise<VideoSource[]> {
     try {
         for (let attempt = 0; attempt < 2; attempt++) {
             const res = await fetchWithRetry(api, 1, upnShareHeaders(embedUrl));
-            if (!res.ok) return [];
+            if (!res.ok) {
+                console.error(`AnimeAV1: UPNShare respondió ${res.status} para ${match[2]}`);
+                return [];
+            }
 
             const plain = CryptoJS.AES.decrypt(
                 CryptoJS.enc.Base64.stringify(CryptoJS.enc.Hex.parse(res.text().trim())),

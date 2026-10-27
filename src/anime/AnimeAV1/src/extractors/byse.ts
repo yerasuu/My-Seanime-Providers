@@ -58,21 +58,35 @@ async function extractByse(embedUrl: string): Promise<VideoSource[]> {
  */
 const BYSE_FALLBACK_EDGES = ["https://edge1-frankfurt-sprintcdn.owphbf24.com"];
 
-// The first edge, assigned one first, that serves the playlist; null when none does.
+/**
+ * Every edge is probed at once and the first to answer wins. One after another,
+ * an edge that hangs holds the line until fetch gives up on it and the whole
+ * episode waits behind it: 20s went by in October 2026 before Frankfurt was
+ * even tried. Null when none answers.
+ */
 async function reachableByseUrl(url: string): Promise<string | null> {
     const origin = url.match(/^https?:\/\/[^/]+/);
     if (!origin) return url;
 
     const path = url.slice(origin[0].length);
+    const edges = [origin[0], ...BYSE_FALLBACK_EDGES.filter(e => e !== origin[0])];
 
-    for (const edge of [origin[0], ...BYSE_FALLBACK_EDGES.filter(e => e !== origin[0])]) {
-        // A reset rejects the fetch instead of answering, and is as much a "no" as a 403.
-        const answered = await fetchWithRetry(edge + path, 0, PLAIN_HEADERS).then(res => res.ok, () => false);
-        if (answered) return edge + path;
-    }
+    const found = await new Promise<string | null>(resolve => {
+        let pending = edges.length;
 
-    console.error(`AnimeAV1: ningún edge de Byse responde para ${origin[0]}`);
-    return null;
+        for (const edge of edges) {
+            // A reset rejects the fetch instead of answering, and is as much a "no" as a 403.
+            fetchWithRetry(edge + path, 0, PLAIN_HEADERS)
+                .then(res => res.ok, () => false)
+                .then(answered => {
+                    if (answered) resolve(edge + path);
+                    else if (--pending === 0) resolve(null);
+                });
+        }
+    });
+
+    if (!found) console.error(`AnimeAV1: ningún edge de Byse responde para ${origin[0]}`);
+    return found;
 }
 
 /**
