@@ -20,12 +20,14 @@ const SERVER_FAILURE_MS = 20 * 1000;
 const SERVER_FOUND_MS = 24 * 60 * 1000;
 
 /**
- * Seanime asks for every listed server one after another, waiting on each,
- * so an episode costs the sum of all of them. The first ask resolves them
- * all at once instead and leaves the outcomes in the store, which outlives
- * the call and is shared across VMs; the asks that follow just read it.
- * An ask that finds its server missing or expired resolves again only the
- * servers in that state, not the ones still held.
+ * Seanime waits on each ask before the player lets the viewer change episode,
+ * so an ask must not wait on a server it was not asked for: one that hangs
+ * would lock the episode buttons for as long as it holds the line, and no
+ * timer exists here to cut it short. Every stale server is started together,
+ * as before, and each leaves its outcome in the store, which outlives the call
+ * and is shared across VMs, as it settles. The ask returns as soon as its own
+ * server has settled; only when that one failed does it wait on the rest,
+ * to fall back to one that resolved.
  */
 async function resolveServers(
     key: string,
@@ -39,32 +41,41 @@ async function resolveServers(
     const usable = (outcome: ServerOutcome | undefined) =>
         !!outcome && now - outcome.at < (outcome.found ? SERVER_FOUND_MS : SERVER_FAILURE_MS);
 
-    if (!usable(held[wanted])) {
-        const stale = servers.filter(server => !usable(held[server]));
+    let outcome = held[wanted];
+    const others: Promise<ServerOutcome>[] = [];
 
-        const settled = await Promise.all(
-            stale.map(server =>
-                resolve(server).then(
+    if (!usable(outcome)) {
+        let own: Promise<ServerOutcome> | undefined;
+
+        for (const server of servers.filter(name => !usable(held[name]))) {
+            const pending = resolve(server)
+                .then(
                     (found): ServerOutcome => ({ found, at: Date.now() }),
                     (err): ServerOutcome => ({ error: err instanceof Error ? err.message : String(err), at: Date.now() })
                 )
-            )
-        );
+                .then(settled => {
+                    const current = remember<{ [server: string]: ServerOutcome }>(key, SERVER_FOUND_MS) || {};
+                    current[server] = settled;
+                    keep(key, current);
+                    held[server] = settled;
+                    return settled;
+                });
 
-        stale.forEach((server, i) => (held[server] = settled[i]));
-        keep(key, held);
+            if (server === wanted) own = pending;
+            else others.push(pending);
+        }
+
+        if (own) outcome = await own;
     }
 
-    const outcome = held[wanted];
     if (outcome && outcome.found) return outcome.found;
 
-    /**
-     * A server that has lost this episode (UPNShare answers 404 for a
-     * removed video) would otherwise leave the player with an error while
-     * others in the same round resolved fine. Only a known server falls
-     * back, in the order listed, so a mistyped name still fails.
-     */
     if (outcome) {
+        // Only a failure needs the rest: a server that has lost this episode
+        // (UPNShare answers 404 for a removed video) falls back to one that
+        // resolved, in the order listed. A mistyped name still fails.
+        await Promise.all(others);
+
         for (const server of servers) {
             const alternative = held[server];
             if (alternative && alternative.found) {
