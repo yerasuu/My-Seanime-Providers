@@ -279,7 +279,8 @@ async function resolveServers(key: string, servers: string[], wanted: string, re
             const alternative = held[server];
             if (alternative && alternative.found) {
                 console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${server}`);
-                return alternative.found;
+                const asked = servers.find(name => name.toUpperCase() === wanted);
+                return { ...alternative.found, server: asked || alternative.found.server };
             }
         }
     }
