@@ -274,17 +274,31 @@ async function resolveServers(key: string, servers: string[], wanted: string, re
     if (outcome && outcome.found)
         return outcome.found;
     if (outcome) {
-        await Promise.all(others);
-        for (const server of servers) {
-            const alternative = held[server];
-            if (alternative && alternative.found) {
-                console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${server}`);
-                const asked = servers.find(name => name.toUpperCase() === wanted);
-                return { ...alternative.found, server: asked || alternative.found.server };
-            }
+        const ready = servers.map(server => held[server]).find(candidate => candidate && candidate.found);
+        const alternative = ready && ready.found || await firstFound(others);
+        if (alternative) {
+            console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${alternative.server}`);
+            const asked = servers.find(name => name.toUpperCase() === wanted);
+            return { ...alternative, server: asked || alternative.server };
         }
     }
     throw new Error(outcome && outcome.error || `Servidor desconocido: ${wanted}`);
+}
+
+function firstFound(pending: Promise<ServerOutcome>[]): Promise<EpisodeServer | undefined> {
+    return new Promise(done => {
+        let left = pending.length;
+        if (left === 0)
+            done(undefined);
+        for (const outcome of pending) {
+            outcome.then(settled => {
+                if (settled.found)
+                    done(settled.found);
+                else if (--left === 0)
+                    done(undefined);
+            });
+        }
+    });
 }
 
 const HLS_HEADERS: {

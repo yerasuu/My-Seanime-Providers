@@ -74,20 +74,35 @@ async function resolveServers(
         // Only a failure needs the rest: a server that has lost this episode
         // (UPNShare answers 404 for a removed video) falls back to one that
         // resolved, in the order listed. A mistyped name still fails.
-        await Promise.all(others);
+        // The first to resolve wins instead of waiting on every one, since
+        // Byse's edges can hang with no way to cut them short, and waiting
+        // on that would leave the player loading although HLS is ready.
+        const ready = servers.map(server => held[server]).find(candidate => candidate && candidate.found);
+        const alternative = ready && ready.found || await firstFound(others);
 
-        for (const server of servers) {
-            const alternative = held[server];
-            if (alternative && alternative.found) {
-                console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${server}`);
+        if (alternative) {
+            console.error(`AnimeAV1: ${wanted} falló (${outcome.error}), se usa ${alternative.server}`);
 
-                // Seanime keeps the server the viewer picked by name, so an answer
-                // under another name leaves the player waiting on one that never comes.
-                const asked = servers.find(name => name.toUpperCase() === wanted);
-                return { ...alternative.found, server: asked || alternative.found.server };
-            }
+            // Seanime keeps the server the viewer picked by name, so an answer
+            // under another name leaves the player waiting on one that never comes.
+            const asked = servers.find(name => name.toUpperCase() === wanted);
+            return { ...alternative, server: asked || alternative.server };
         }
     }
 
     throw new Error(outcome && outcome.error || `Servidor desconocido: ${wanted}`);
+}
+
+function firstFound(pending: Promise<ServerOutcome>[]): Promise<EpisodeServer | undefined> {
+    return new Promise(done => {
+        let left = pending.length;
+        if (left === 0) done(undefined);
+
+        for (const outcome of pending) {
+            outcome.then(settled => {
+                if (settled.found) done(settled.found);
+                else if (--left === 0) done(undefined);
+            });
+        }
+    });
 }
