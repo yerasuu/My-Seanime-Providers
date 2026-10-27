@@ -24,20 +24,14 @@ async function extractByse(embedUrl: string): Promise<VideoSource[]> {
         if (!plain) return [];
 
         const sources: any[] = (JSON.parse(plain).sources || []).filter((s: any) => s && typeof s.url === "string");
-        const urls = await Promise.all(sources.map(s => reachableByseUrl(s.url)));
-
         const found: VideoSource[] = [];
 
         sources.forEach((s, i) => {
-            const url = urls[i];
-            if (!url) return;
+            const quality = s.label || s.height && `${s.height}p` || `auto ${i + 1}`;
+            const type = String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4";
 
-            found.push({
-                url,
-                type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
-                quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
-                subtitles: [],
-            });
+            for (const edge of byseEdgeUrls(s.url))
+                found.push({ url: edge.url, type, quality: edge.label ? `${quality} (${edge.label})` : quality, subtitles: [] });
         });
 
         return found;
@@ -53,40 +47,28 @@ async function extractByse(embedUrl: string): Promise<VideoSource[]> {
  * October 2026, from an Orange Spain line, every Warsaw `*.r66nv9ed.com` edge
  * reset the connection, so Seanime's proxy failed on the playlist and the
  * player never started. The token is not bound to the edge - the same path
- * played from Frankfurt - so when the assigned edge does not answer, the
- * stream moves to one that does.
+ * played from Frankfurt - so the stream is offered from both.
  */
-const BYSE_FALLBACK_EDGES = ["https://edge1-frankfurt-sprintcdn.owphbf24.com"];
+const BYSE_FALLBACK_EDGES = [{ origin: "https://edge1-frankfurt-sprintcdn.owphbf24.com", label: "Frankfurt" }];
 
 /**
- * Every edge is probed at once and the first to answer wins. One after another,
- * an edge that hangs holds the line until fetch gives up on it and the whole
- * episode waits behind it: 20s went by in October 2026 before Frankfurt was
- * even tried. Null when none answers.
+ * Every edge is offered as a source and none is probed first. A probe cannot be
+ * cut short when an edge hangs, and the episode waited behind it, which left
+ * the player loading although another server was ready. The assigned edge
+ * comes first; the viewer can switch to the next when it does not play.
  */
-async function reachableByseUrl(url: string): Promise<string | null> {
+function byseEdgeUrls(url: string): { url: string; label?: string }[] {
     const origin = url.match(/^https?:\/\/[^/]+/);
-    if (!origin) return url;
+    if (!origin) return [{ url }];
 
     const path = url.slice(origin[0].length);
-    const edges = [origin[0], ...BYSE_FALLBACK_EDGES.filter(e => e !== origin[0])];
 
-    const found = await new Promise<string | null>(resolve => {
-        let pending = edges.length;
-
-        for (const edge of edges) {
-            // A reset rejects the fetch instead of answering, and is as much a "no" as a 403.
-            fetchWithRetry(edge + path, 0, PLAIN_HEADERS)
-                .then(res => res.ok, () => false)
-                .then(answered => {
-                    if (answered) resolve(edge + path);
-                    else if (--pending === 0) resolve(null);
-                });
-        }
-    });
-
-    if (!found) console.error(`AnimeAV1: ningún edge de Byse responde para ${origin[0]}`);
-    return found;
+    return [
+        { url },
+        ...BYSE_FALLBACK_EDGES
+            .filter(edge => edge.origin !== origin[0])
+            .map(edge => ({ url: edge.origin + path, label: edge.label })),
+    ];
 }
 
 /**
