@@ -29,6 +29,24 @@ function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>
     return undefined;
 }
 
+/**
+ * What each host's own embedded player sends with its playlist and segment
+ * requests: the embed's origin as Referer and Origin. Dailymotion's CDN
+ * answered Seanime's proxy with something that was not a playlist while only a
+ * User-Agent went along, and Seanime replays these on every segment.
+ */
+function playbackHeaders(embed: string): { [key: string]: string } {
+    const headers: { [key: string]: string } = { "User-Agent": BROWSER_UA };
+    const origin = embed.match(/^https?:\/\/[^/]+/);
+
+    if (origin && /dailymotion\.com|rumble\.com|ok\.ru/i.test(embed)) {
+        headers["Referer"] = origin[0] + "/";
+        headers["Origin"] = origin[0];
+    }
+
+    return headers;
+}
+
 class Provider {
     getSettings(): Settings {
         return { episodeServers: SERVER_NAMES, supportsDub: false };
@@ -76,10 +94,10 @@ class Provider {
         return Array.from(episodes.values()).sort((a, b) => a.number - b.number);
     }
 
-    private async resolve(episode: EpisodeDetails, name: string): Promise<VideoSource[]> {
-        const key = `sd:${episode.url}:${name}`;
+    private async resolve(episode: EpisodeDetails, name: string): Promise<{ videoSources: VideoSource[]; headers: { [key: string]: string } }> {
+        const key = `sd2:${episode.url}:${name}`;
 
-        const cached = remember<VideoSource[]>(key, RESOLVED_MS);
+        const cached = remember<{ videoSources: VideoSource[]; headers: { [key: string]: string } }>(key, RESOLVED_MS);
         if (cached) return cached;
 
         const embed = await embedUrl(episode.url, name);
@@ -89,8 +107,9 @@ class Provider {
         const videoSources = await extract(embed);
         if (videoSources.length === 0) throw new Error(`${name} no devolvió fuentes`);
 
-        keep(key, videoSources);
-        return videoSources;
+        const resolved = { videoSources, headers: playbackHeaders(embed) };
+        keep(key, resolved);
+        return resolved;
     }
 
     /**
@@ -107,10 +126,10 @@ class Provider {
 
         for (const name of [wanted, ...names.filter(known => known !== wanted)]) {
             try {
-                const videoSources = await this.resolve(episode, name);
+                const { videoSources, headers } = await this.resolve(episode, name);
                 if (name !== wanted) console.error(`SeriesDonghua: ${wanted} falló, se usa ${name}`);
 
-                return { server: wanted, headers: { "User-Agent": BROWSER_UA }, videoSources };
+                return { server: wanted, headers, videoSources };
             } catch (err) {
                 firstError = firstError || err;
             }
