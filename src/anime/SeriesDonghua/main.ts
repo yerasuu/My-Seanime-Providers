@@ -222,13 +222,17 @@ function byseKeyParts(playback: {
     return [parts[first - 1], parts[second - 1]];
 }
 
-const EXTRACTORS: {
-    [server: string]: (embed: string) => Promise<VideoSource[]>;
-} = {
-    Dailymotion: extractDailymotion,
-    Filemoon: extractByse,
-    VOE: extractVoe,
-};
+const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE"];
+
+function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>) | undefined {
+    if (/dailymotion\.com/i.test(embed))
+        return extractDailymotion;
+    if (/filemoon|byse/i.test(embed))
+        return extractByse;
+    if (/voe\.sx/i.test(embed))
+        return extractVoe;
+    return undefined;
+}
 
 class Provider {
     getSettings(): Settings {
@@ -273,7 +277,11 @@ class Provider {
         const cached = remember<VideoSource[]>(key, RESOLVED_MS);
         if (cached)
             return cached;
-        const videoSources = await EXTRACTORS[name](await embedUrl(episode.url, name));
+        const embed = await embedUrl(episode.url, name);
+        const extract = extractorFor(embed);
+        if (!extract)
+            throw new Error(`${name} usa un reproductor sin soporte: ${embed}`);
+        const videoSources = await extract(embed);
         if (videoSources.length === 0)
             throw new Error(`${name} no devolvió fuentes`);
         keep(key, videoSources);
@@ -281,7 +289,7 @@ class Provider {
     }
 
     async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
-        const names = Object.keys(EXTRACTORS);
+        const names = SERVER_NAMES;
         const wanted = names.find(known => known.toLowerCase() === server.toLowerCase());
         if (!wanted)
             throw new Error(`Servidor desconocido: ${server}`);
