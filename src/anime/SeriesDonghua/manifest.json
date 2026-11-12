@@ -1,13 +1,13 @@
 {
   "id": "seriesdonghua",
   "name": "SeriesDonghua",
-  "version": "1.0.1",
-  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/anime/SeriesDonghua/manifest.json",
+  "version": "1.0.2",
+  "manifestURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/SeriesDonghua/manifest.json",
   "language": "typescript",
   "type": "onlinestream-provider",
   "description": "Donghua online con subtítulos en español desde seriesdonghua.com.",
   "author": "yerasuu",
-  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/anime/SeriesDonghua/icon.png",
+  "icon": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/SeriesDonghua/icon.png",
   "lang": "es",
-  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/anime/SeriesDonghua/main.ts"
+  "payloadURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/SeriesDonghua/main.ts"
 }
