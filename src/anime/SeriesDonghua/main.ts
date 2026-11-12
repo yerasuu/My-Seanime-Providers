@@ -201,12 +201,33 @@ async function extractByse(embed: string): Promise<VideoSource[]> {
     if (!plain)
         return [];
     const sources: any[] = (JSON.parse(plain).sources || []).filter((s: any) => s && typeof s.url === "string");
-    return sources.map((s, i) => ({
-        url: s.url,
-        type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
-        quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
-        subtitles: [],
-    }));
+    const found: VideoSource[] = [];
+    sources.forEach((s, i) => {
+        const quality = s.label || s.height && `${s.height}p` || `auto ${i + 1}`;
+        const type = String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4";
+        for (const edge of byseEdgeUrls(s.url)) {
+            found.push({ url: edge.url, type, quality: edge.label ? `${quality} (${edge.label})` : quality, subtitles: [] });
+        }
+    });
+    return found;
+}
+
+const BYSE_FALLBACK_EDGES = [{ origin: "https://edge1-frankfurt-sprintcdn.owphbf24.com", label: "Frankfurt" }];
+
+function byseEdgeUrls(url: string): {
+    url: string;
+    label?: string;
+}[] {
+    const origin = url.match(/^https?:\/\/[^/]+/);
+    if (!origin)
+        return [{ url }];
+    const path = url.slice(origin[0].length);
+    return [
+        { url },
+        ...BYSE_FALLBACK_EDGES
+            .filter(edge => edge.origin !== origin[0])
+            .map(edge => ({ url: edge.origin + path, label: edge.label })),
+    ];
 }
 
 function byseKeyParts(playback: {
@@ -247,7 +268,7 @@ async function extractRumble(embed: string): Promise<VideoSource[]> {
     return [{ url: hls[1].replace(/\\\//g, "/"), type: "m3u8", quality: "auto", subtitles: [] }];
 }
 
-const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"];
+const SERVER_NAMES = ["Filemoon", "Rumble", "VOE", "OK.ru", "Dailymotion"];
 
 function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>) | undefined {
     if (/dailymotion\.com/i.test(embed))
@@ -265,7 +286,7 @@ function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>
 
 class Provider {
     getSettings(): Settings {
-        return { episodeServers: ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"], supportsDub: false };
+        return { episodeServers: SERVER_NAMES, supportsDub: false };
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {

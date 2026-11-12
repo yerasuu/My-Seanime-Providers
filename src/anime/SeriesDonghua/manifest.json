@@ -1,7 +1,7 @@
 {
   "id": "seriesdonghua",
   "name": "SeriesDonghua",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "manifestURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/SeriesDonghua/manifest.json",
   "language": "typescript",
   "type": "onlinestream-provider",

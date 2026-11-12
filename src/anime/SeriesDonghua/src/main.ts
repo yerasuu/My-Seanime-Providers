@@ -8,7 +8,12 @@
 /// <reference path="extractors/okru.ts" />
 /// <reference path="extractors/rumble.ts" />
 
-const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"];
+/**
+ * Dailymotion goes last: Seanime's proxy got something other than a playlist
+ * from its CDN manifest ("#EXTM3U absent", November 2026), and a failed server
+ * falls back to the next one in this order, so it must not be the first to catch one.
+ */
+const SERVER_NAMES = ["Filemoon", "Rumble", "VOE", "OK.ru", "Dailymotion"];
 
 /**
  * The extractor follows the embed's host, not the tab it came from: the site
@@ -26,7 +31,7 @@ function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>
 
 class Provider {
     getSettings(): Settings {
-        return { episodeServers: ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"], supportsDub: false };
+        return { episodeServers: SERVER_NAMES, supportsDub: false };
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {

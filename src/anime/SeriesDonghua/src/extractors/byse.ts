@@ -21,12 +21,41 @@ async function extractByse(embed: string): Promise<VideoSource[]> {
 
     const sources: any[] = (JSON.parse(plain).sources || []).filter((s: any) => s && typeof s.url === "string");
 
-    return sources.map((s, i) => ({
-        url: s.url,
-        type: String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4",
-        quality: s.label || s.height && `${s.height}p` || `auto ${i + 1}`,
-        subtitles: [],
-    }));
+    const found: VideoSource[] = [];
+
+    sources.forEach((s, i) => {
+        const quality = s.label || s.height && `${s.height}p` || `auto ${i + 1}`;
+        const type = String(s.mime_type || "").indexOf("mpegurl") !== -1 ? "m3u8" : "mp4";
+
+        for (const edge of byseEdgeUrls(s.url)) {
+            found.push({ url: edge.url, type, quality: edge.label ? `${quality} (${edge.label})` : quality, subtitles: [] });
+        }
+    });
+
+    return found;
+}
+
+/**
+ * Byse's API picks the edge, and some edges refuse a connection outright: from
+ * an Orange Spain line in November 2026 the Madrid `*.r66nv9ed.com` edge reset
+ * the connection on most tries, so Seanime's proxy failed on the playlist. The
+ * token is not bound to the edge, so the stream is also offered from Frankfurt
+ * (as AnimeAV1 does) and the viewer can switch when the first does not play.
+ */
+const BYSE_FALLBACK_EDGES = [{ origin: "https://edge1-frankfurt-sprintcdn.owphbf24.com", label: "Frankfurt" }];
+
+function byseEdgeUrls(url: string): { url: string; label?: string }[] {
+    const origin = url.match(/^https?:\/\/[^/]+/);
+    if (!origin) return [{ url }];
+
+    const path = url.slice(origin[0].length);
+
+    return [
+        { url },
+        ...BYSE_FALLBACK_EDGES
+            .filter(edge => edge.origin !== origin[0])
+            .map(edge => ({ url: edge.origin + path, label: edge.label })),
+    ];
 }
 
 // The player keeps only parts `version` and `31 - version` (1-based); the rest are decoys.
