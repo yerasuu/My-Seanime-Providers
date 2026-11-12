@@ -17,8 +17,42 @@ const decodeEntities = (text: string) =>
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">");
 
-async function get(url: string, headers: { [key: string]: string } = {}): Promise<FetchResponse> {
-    return fetch(url, { headers: { "User-Agent": BROWSER_UA, ...headers } });
+// Pulled from AnimeAV1: a transient 5xx or a refused connection is worth one more try.
+async function get(url: string, headers: { [key: string]: string } = {}, retries = 1): Promise<FetchResponse> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA, ...headers } });
+            if (res.status < 500 || attempt >= retries) return res;
+        } catch (err) {
+            if (attempt >= retries) throw err;
+        }
+    }
+}
+
+// Pulled from AnimeAV1: the runtime's store outlives a call and is shared across VMs.
+const RESOLVED_MS = 20 * 60 * 1000;
+
+function remember<T>(key: string, maxAge: number): T | undefined {
+    if (typeof $store === "undefined" || !$store) return undefined;
+
+    try {
+        const hit = $store.get<{ at: number; value: T }>(key);
+        if (hit && Date.now() - hit.at < maxAge) return hit.value;
+    } catch (err) {
+        // A misbehaving store must not take playback down with it.
+    }
+
+    return undefined;
+}
+
+function keep(key: string, value: unknown): void {
+    if (typeof $store === "undefined" || !$store) return;
+
+    try {
+        $store.set(key, { at: Date.now(), value });
+    } catch (err) {
+        // Not being able to cache is not a reason to fail.
+    }
 }
 
 /**
@@ -211,6 +245,12 @@ const EXTRACTORS: { [server: string]: (embed: string) => Promise<VideoSource[]> 
     VOE: extractVoe,
 };
 
+// Not in core.d.ts; the runtime supplies it and esbuild strips the declaration.
+declare const $store: {
+    get<T = any>(key: string): T | undefined;
+    set(key: string, value: any): void;
+} | undefined;
+
 class Provider {
     getSettings(): Settings {
         return { episodeServers: ["Dailymotion", "Filemoon", "VOE"], supportsDub: false };
@@ -253,14 +293,42 @@ class Provider {
         return [...episodes.values()].sort((a, b) => a.number - b.number);
     }
 
-    async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
-        const name = Object.keys(EXTRACTORS).find(known => known.toLowerCase() === server.toLowerCase());
-        if (!name) throw new Error(`Servidor desconocido: ${server}`);
+    private async resolve(episode: EpisodeDetails, name: string): Promise<VideoSource[]> {
+        const key = `sd:${episode.url}:${name}`;
 
-        const embed = await embedUrl(episode.url, name);
-        const videoSources = await EXTRACTORS[name](embed);
+        const cached = remember<VideoSource[]>(key, RESOLVED_MS);
+        if (cached) return cached;
+
+        const videoSources = await EXTRACTORS[name](await embedUrl(episode.url, name));
         if (videoSources.length === 0) throw new Error(`${name} no devolvió fuentes`);
 
-        return { server: name, headers: { "User-Agent": BROWSER_UA }, videoSources };
+        keep(key, videoSources);
+        return videoSources;
+    }
+
+    /**
+     * Seanime keeps the server the viewer picked by name, so when it fails
+     * (a removed video, a blocked CDN) the next one that resolves is answered
+     * under the asked name, as AnimeAV1 does, rather than leaving the player loading.
+     */
+    async findEpisodeServer(episode: EpisodeDetails, server: string): Promise<EpisodeServer> {
+        const names = Object.keys(EXTRACTORS);
+        const wanted = names.find(known => known.toLowerCase() === server.toLowerCase());
+        if (!wanted) throw new Error(`Servidor desconocido: ${server}`);
+
+        let firstError: unknown;
+
+        for (const name of [wanted, ...names.filter(known => known !== wanted)]) {
+            try {
+                const videoSources = await this.resolve(episode, name);
+                if (name !== wanted) console.error(`SeriesDonghua: ${wanted} falló, se usa ${name}`);
+
+                return { server: wanted, headers: { "User-Agent": BROWSER_UA }, videoSources };
+            } catch (err) {
+                firstError = firstError || err;
+            }
+        }
+
+        throw firstError;
     }
 }
