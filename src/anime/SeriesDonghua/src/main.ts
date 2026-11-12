@@ -1,6 +1,7 @@
 /// <reference path="../../online-streaming-provider.d.ts" />
 /// <reference path="store.ts" />
 /// <reference path="http.ts" />
+/// <reference path="catalog.ts" />
 /// <reference path="embeds.ts" />
 /// <reference path="extractors/dailymotion.ts" />
 /// <reference path="extractors/voe.ts" />
@@ -22,11 +23,12 @@ class Provider {
         const titles = [opts.query, media && media.romajiTitle, media && media.englishTitle].concat(
             media && media.synonyms || []
         );
-        const queries = titles.filter(
-            (title, i): title is string => !!title && title.trim() !== "" && titles.indexOf(title) === i
-        );
+        const named = titles.filter((title): title is string => !!title && title.trim() !== "");
+        const queries = named
+            .concat(named.map(withoutSeasonNumber))
+            .filter((title, i, all) => title !== "" && all.indexOf(title) === i);
 
-        for (const query of queries.slice(0, 4)) {
+        for (const query of queries.slice(0, 6)) {
             const res = await get(`${BASE_URL}/buscar.php?s=${encodeURIComponent(query)}`);
             if (!res.ok) continue;
 
@@ -37,7 +39,7 @@ class Provider {
                 results.push({ id: slug, title: decodeEntities(title.trim()), url: `${BASE_URL}/${slug}/`, subOrDub: "sub" });
             }
 
-            if (results.length > 0) return results;
+            if (results.length > 0) return rankByEpisodes(results, media);
         }
 
         return [];

@@ -66,6 +66,43 @@ function allMatches(pattern: RegExp, text: string): RegExpExecArray[] {
     return found;
 }
 
+const COUNT_MS = 60 * 60 * 1000;
+
+function withoutSeasonNumber(title: string): string {
+    return title.replace(/\s+(?:(?:season|temporada|part|parte)\s+)?\d+$/i, "").trim();
+}
+
+async function episodeCount(slug: string): Promise<number> {
+    const key = `sd:count:${slug}`;
+    const cached = remember<number>(key, COUNT_MS);
+    if (cached !== undefined)
+        return cached;
+    try {
+        const res = await get(`${BASE_URL}/${slug}/`);
+        const found = res.ok && res.text().match(/"numberOfEpisodes":\s*(\d+)/);
+        const count = found ? parseInt(found[1], 10) : 0;
+        if (count > 0)
+            keep(key, count);
+        return count;
+    }
+    catch (err) {
+        return 0;
+    }
+}
+
+async function rankByEpisodes(results: SearchResult[], media: Media | undefined): Promise<SearchResult[]> {
+    const target = media && media.episodeCount;
+    if (!target || results.length < 2)
+        return results;
+    const counts = await Promise.all(results.map(result => episodeCount(result.id)));
+    const distance = (i: number) => counts[i] <= 0 ? Infinity : counts[i] > target ? 1000 + counts[i] - target : target - counts[i];
+    const order = results.map((_, i) => i).sort((a, b) => distance(a) - distance(b));
+    const best = order[0];
+    if (media && media.status === "RELEASING" && counts[best] > 0 && counts[best] <= target)
+        return [results[best]];
+    return order.map(i => results[i]);
+}
+
 async function embedUrl(pageUrl: string, serverName: string): Promise<string> {
     const page = await get(pageUrl);
     if (!page.ok)
@@ -238,8 +275,11 @@ class Provider {
     async search(opts: SearchOptions): Promise<SearchResult[]> {
         const media = opts.media;
         const titles = [opts.query, media && media.romajiTitle, media && media.englishTitle].concat(media && media.synonyms || []);
-        const queries = titles.filter((title, i): title is string => !!title && title.trim() !== "" && titles.indexOf(title) === i);
-        for (const query of queries.slice(0, 4)) {
+        const named = titles.filter((title): title is string => !!title && title.trim() !== "");
+        const queries = named
+            .concat(named.map(withoutSeasonNumber))
+            .filter((title, i, all) => title !== "" && all.indexOf(title) === i);
+        for (const query of queries.slice(0, 6)) {
             const res = await get(`${BASE_URL}/buscar.php?s=${encodeURIComponent(query)}`);
             if (!res.ok)
                 continue;
@@ -249,7 +289,7 @@ class Provider {
                 results.push({ id: slug, title: decodeEntities(title.trim()), url: `${BASE_URL}/${slug}/`, subOrDub: "sub" });
             }
             if (results.length > 0)
-                return results;
+                return rankByEpisodes(results, media);
         }
         return [];
     }
