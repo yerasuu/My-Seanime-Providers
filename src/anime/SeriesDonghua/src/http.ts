@@ -24,3 +24,17 @@ async function get(url: string, headers: { [key: string]: string } = {}, retries
         }
     }
 }
+
+/**
+ * Every match of a global pattern. Seanime rejected a search that used
+ * String.prototype.matchAll, which its engine most likely lacks, and
+ * AnimeAV1 avoids it too.
+ */
+function allMatches(pattern: RegExp, text: string): RegExpExecArray[] {
+    const found: RegExpExecArray[] = [];
+    const global = new RegExp(pattern.source, "g");
+
+    for (let match = global.exec(text); match; match = global.exec(text)) found.push(match);
+
+    return found;
+}

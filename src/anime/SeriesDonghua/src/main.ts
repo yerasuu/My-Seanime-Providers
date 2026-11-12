@@ -18,15 +18,20 @@ class Provider {
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
-        const queries = [opts.query, opts.media.romajiTitle, opts.media.englishTitle, ...opts.media.synonyms]
-            .filter((title): title is string => !!title && title.trim() !== "");
+        const media = opts.media;
+        const titles = [opts.query, media && media.romajiTitle, media && media.englishTitle].concat(
+            media && media.synonyms || []
+        );
+        const queries = titles.filter(
+            (title, i): title is string => !!title && title.trim() !== "" && titles.indexOf(title) === i
+        );
 
-        for (const query of [...new Set(queries)].slice(0, 4)) {
+        for (const query of queries.slice(0, 4)) {
             const res = await get(`${BASE_URL}/buscar.php?s=${encodeURIComponent(query)}`);
             if (!res.ok) continue;
 
             const results: SearchResult[] = [];
-            const cards = res.text().matchAll(/<article class="donghua-card">\s*<a href="\/([^"\/]+)\/"[\s\S]*?<h3 class="card-title">([^<]+)<\/h3>/g);
+            const cards = allMatches(/<article class="donghua-card">\s*<a href="\/([^"\/]+)\/"[\s\S]*?<h3 class="card-title">([^<]+)<\/h3>/, res.text());
 
             for (const [, slug, title] of cards) {
                 results.push({ id: slug, title: decodeEntities(title.trim()), url: `${BASE_URL}/${slug}/`, subOrDub: "sub" });
@@ -44,14 +49,14 @@ class Provider {
 
         const episodes = new Map<number, EpisodeDetails>();
 
-        for (const [, path, number] of res.text().matchAll(/<a href="(\/[^"]+-episodio-(\d+)\/)"/g)) {
+        for (const [, path, number] of allMatches(/<a href="(\/[^"]+-episodio-(\d+)\/)"/, res.text())) {
             const n = parseInt(number, 10);
             if (episodes.has(n)) continue;
 
             episodes.set(n, { id: `${BASE_URL}${path}`, number: n, title: `Episodio ${n}`, url: `${BASE_URL}${path}` });
         }
 
-        return [...episodes.values()].sort((a, b) => a.number - b.number);
+        return Array.from(episodes.values()).sort((a, b) => a.number - b.number);
     }
 
     private async resolve(episode: EpisodeDetails, name: string): Promise<VideoSource[]> {

@@ -13,7 +13,7 @@ async function embedUrl(pageUrl: string, serverName: string): Promise<string> {
     const token = html.match(/name="csrf-token" content="([^"]+)"/);
     if (!token) throw new Error("La página del episodio no trae token CSRF");
 
-    const tabs = [...html.matchAll(/data-video-id="(\d+)"\s+data-server-index="(\d+)">\s*<i[^>]*><\/i>\s*<span>([^<]+)<\/span>/g)];
+    const tabs = allMatches(/data-video-id="(\d+)"\s+data-server-index="(\d+)">\s*<i[^>]*><\/i>\s*<span>([^<]+)<\/span>/, html);
     const tab = tabs.find(match => match[3].trim().toLowerCase() === serverName.toLowerCase());
     if (!tab) throw new Error(`${serverName} no está disponible en este episodio`);
 

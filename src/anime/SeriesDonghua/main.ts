@@ -58,6 +58,14 @@ async function get(url: string, headers: {
     }
 }
 
+function allMatches(pattern: RegExp, text: string): RegExpExecArray[] {
+    const found: RegExpExecArray[] = [];
+    const global = new RegExp(pattern.source, "g");
+    for (let match = global.exec(text); match; match = global.exec(text))
+        found.push(match);
+    return found;
+}
+
 async function embedUrl(pageUrl: string, serverName: string): Promise<string> {
     const page = await get(pageUrl);
     if (!page.ok)
@@ -66,7 +74,7 @@ async function embedUrl(pageUrl: string, serverName: string): Promise<string> {
     const token = html.match(/name="csrf-token" content="([^"]+)"/);
     if (!token)
         throw new Error("La página del episodio no trae token CSRF");
-    const tabs = [...html.matchAll(/data-video-id="(\d+)"\s+data-server-index="(\d+)">\s*<i[^>]*><\/i>\s*<span>([^<]+)<\/span>/g)];
+    const tabs = allMatches(/data-video-id="(\d+)"\s+data-server-index="(\d+)">\s*<i[^>]*><\/i>\s*<span>([^<]+)<\/span>/, html);
     const tab = tabs.find(match => match[3].trim().toLowerCase() === serverName.toLowerCase());
     if (!tab)
         throw new Error(`${serverName} no está disponible en este episodio`);
@@ -228,14 +236,15 @@ class Provider {
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
-        const queries = [opts.query, opts.media.romajiTitle, opts.media.englishTitle, ...opts.media.synonyms]
-            .filter((title): title is string => !!title && title.trim() !== "");
-        for (const query of [...new Set(queries)].slice(0, 4)) {
+        const media = opts.media;
+        const titles = [opts.query, media && media.romajiTitle, media && media.englishTitle].concat(media && media.synonyms || []);
+        const queries = titles.filter((title, i): title is string => !!title && title.trim() !== "" && titles.indexOf(title) === i);
+        for (const query of queries.slice(0, 4)) {
             const res = await get(`${BASE_URL}/buscar.php?s=${encodeURIComponent(query)}`);
             if (!res.ok)
                 continue;
             const results: SearchResult[] = [];
-            const cards = res.text().matchAll(/<article class="donghua-card">\s*<a href="\/([^"\/]+)\/"[\s\S]*?<h3 class="card-title">([^<]+)<\/h3>/g);
+            const cards = allMatches(/<article class="donghua-card">\s*<a href="\/([^"\/]+)\/"[\s\S]*?<h3 class="card-title">([^<]+)<\/h3>/, res.text());
             for (const [, slug, title] of cards) {
                 results.push({ id: slug, title: decodeEntities(title.trim()), url: `${BASE_URL}/${slug}/`, subOrDub: "sub" });
             }
@@ -250,13 +259,13 @@ class Provider {
         if (!res.ok)
             return [];
         const episodes = new Map<number, EpisodeDetails>();
-        for (const [, path, number] of res.text().matchAll(/<a href="(\/[^"]+-episodio-(\d+)\/)"/g)) {
+        for (const [, path, number] of allMatches(/<a href="(\/[^"]+-episodio-(\d+)\/)"/, res.text())) {
             const n = parseInt(number, 10);
             if (episodes.has(n))
                 continue;
             episodes.set(n, { id: `${BASE_URL}${path}`, number: n, title: `Episodio ${n}`, url: `${BASE_URL}${path}` });
         }
-        return [...episodes.values()].sort((a, b) => a.number - b.number);
+        return Array.from(episodes.values()).sort((a, b) => a.number - b.number);
     }
 
     private async resolve(episode: EpisodeDetails, name: string): Promise<VideoSource[]> {
