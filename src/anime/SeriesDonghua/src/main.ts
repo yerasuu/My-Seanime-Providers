@@ -5,8 +5,10 @@
 /// <reference path="extractors/dailymotion.ts" />
 /// <reference path="extractors/voe.ts" />
 /// <reference path="extractors/byse.ts" />
+/// <reference path="extractors/okru.ts" />
+/// <reference path="extractors/rumble.ts" />
 
-const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE"];
+const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"];
 
 /**
  * The extractor follows the embed's host, not the tab it came from: the site
@@ -17,12 +19,14 @@ function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>
     if (/dailymotion\.com/i.test(embed)) return extractDailymotion;
     if (/filemoon|byse/i.test(embed)) return extractByse;
     if (/voe\.sx/i.test(embed)) return extractVoe;
+    if (/ok\.ru/i.test(embed)) return extractOkru;
+    if (/rumble\.com/i.test(embed)) return extractRumble;
     return undefined;
 }
 
 class Provider {
     getSettings(): Settings {
-        return { episodeServers: ["Dailymotion", "Filemoon", "VOE"], supportsDub: false };
+        return { episodeServers: ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"], supportsDub: false };
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {

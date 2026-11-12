@@ -222,7 +222,32 @@ function byseKeyParts(playback: {
     return [parts[first - 1], parts[second - 1]];
 }
 
-const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE"];
+async function extractOkru(embed: string): Promise<VideoSource[]> {
+    const res = await get(embed);
+    if (!res.ok)
+        return [];
+    const options = res.text().match(/data-options="([^"]*)"/);
+    if (!options)
+        return [];
+    const flashvars = JSON.parse(decodeEntities(options[1])).flashvars;
+    const metadata = flashvars && (typeof flashvars.metadata === "string" ? JSON.parse(flashvars.metadata) : flashvars.metadata);
+    if (!metadata)
+        return [];
+    const hls = metadata.ondemandHls || metadata.hlsManifestUrl;
+    return hls ? [{ url: hls, type: "m3u8", quality: "auto", subtitles: [] }] : [];
+}
+
+async function extractRumble(embed: string): Promise<VideoSource[]> {
+    const res = await get(embed);
+    if (!res.ok)
+        return [];
+    const hls = res.text().match(/"hls":\{"url":"([^"]+)"/);
+    if (!hls)
+        return [];
+    return [{ url: hls[1].replace(/\\\//g, "/"), type: "m3u8", quality: "auto", subtitles: [] }];
+}
+
+const SERVER_NAMES = ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"];
 
 function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>) | undefined {
     if (/dailymotion\.com/i.test(embed))
@@ -231,12 +256,16 @@ function extractorFor(embed: string): ((embed: string) => Promise<VideoSource[]>
         return extractByse;
     if (/voe\.sx/i.test(embed))
         return extractVoe;
+    if (/ok\.ru/i.test(embed))
+        return extractOkru;
+    if (/rumble\.com/i.test(embed))
+        return extractRumble;
     return undefined;
 }
 
 class Provider {
     getSettings(): Settings {
-        return { episodeServers: ["Dailymotion", "Filemoon", "VOE"], supportsDub: false };
+        return { episodeServers: ["Dailymotion", "Filemoon", "VOE", "OK.ru", "Rumble"], supportsDub: false };
     }
 
     async search(opts: SearchOptions): Promise<SearchResult[]> {
