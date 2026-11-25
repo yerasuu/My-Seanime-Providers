@@ -84,7 +84,7 @@ interface PluginContext {
     /** Devuelve la función para cancelar el intervalo. */
     setInterval(fn: () => void, delay: number): () => void;
     setTimeout(fn: () => void, delay: number): () => void;
-    dom?: DomApi;
+    dom?: DomApi & { createElement?(tag: string): Promise<any> };
 }
 
 interface DomElement {

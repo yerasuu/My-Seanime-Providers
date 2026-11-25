@@ -4,22 +4,6 @@ interface MarketplaceSource {
     url: string;
 }
 
-interface CatalogEntry {
-    id: string;
-    name: string;
-    description?: string;
-    author?: string;
-    type?: string;
-    language?: string;
-    lang?: string;
-    icon?: string;
-    manifestURI?: string;
-    payloadURI?: string;
-    website?: string;
-    sourceId: string;
-    sourceName: string;
-}
-
 $ui.register((ctx) => {
     // Everything the UI handler needs must live inside this function body:
     // Seanime stringifies this callback and re-evaluates it in an isolated
@@ -57,7 +41,8 @@ $ui.register((ctx) => {
         },
     ];
 
-    const MAX_RENDERED_ENTRIES = 150;
+    // Seanime keeps the active marketplace in the web UI localStorage (jotai atomWithStorage, JSON encoded).
+    const STORAGE_KEY = "marketplace-url";
 
     function slugify(value: string): string {
         const slug = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -112,12 +97,8 @@ $ui.register((ctx) => {
 
     const storedSources = $storage.get<MarketplaceSource[]>("sources");
     const sources = ctx.state<MarketplaceSource[]>(storedSources && storedSources.length > 0 ? storedSources : DEFAULT_SOURCES);
-    const catalog = ctx.state<CatalogEntry[]>([]);
-    const query = ctx.state<string>("");
-    const loading = ctx.state<boolean>(false);
-    const lastError = ctx.state<string>("");
+    const activeUrl = ctx.state<string>("");
 
-    const searchRef = ctx.fieldRef<string>("");
     const newSourceNameRef = ctx.fieldRef<string>("");
     const newSourceUrlRef = ctx.fieldRef<string>("");
 
@@ -125,69 +106,23 @@ $ui.register((ctx) => {
         $storage.set("sources", list);
     }
 
-    async function refresh() {
-        if (loading.get()) return;
-        loading.set(true);
-        lastError.set("");
-
-        const merged: Record<string, CatalogEntry> = {};
-        const failed: string[] = [];
-
-        for (const src of sources.get()) {
-            try {
-                const res = await ctx.fetch(src.url);
-                if (!res.ok) {
-                    failed.push(src.name);
-                    continue;
-                }
-                const data = await res.json();
-                if (!Array.isArray(data)) {
-                    failed.push(src.name);
-                    continue;
-                }
-                for (const item of data) {
-                    if (!item || !item.id || !item.name) continue;
-                    if (merged[item.id]) continue;
-                    merged[item.id] = {
-                        id: String(item.id),
-                        name: String(item.name),
-                        description: item.description || "",
-                        author: item.author || "",
-                        type: item.type || "",
-                        language: item.language || "",
-                        lang: item.lang || "",
-                        icon: item.icon || "",
-                        manifestURI: item.manifestURI || "",
-                        payloadURI: item.payloadURI || "",
-                        website: item.website || "",
-                        sourceId: src.id,
-                        sourceName: src.name,
-                    };
-                }
-            } catch (e) {
-                failed.push(src.name);
-            }
+    // Switches Seanime's own marketplace repository: writes the web UI's
+    // localStorage entry through an injected script, then reloads so the
+    // Extensions page reads it. Needs the dom-script-manipulation flag.
+    async function useSource(src: MarketplaceSource) {
+        try {
+            if (!ctx.dom || !ctx.dom.createElement || !ctx.dom.queryOne) throw new Error("no dom");
+            const body = await ctx.dom.queryOne("body");
+            if (!body) throw new Error("no body");
+            const script = await ctx.dom.createElement("script");
+            script.setText(`try{localStorage.setItem(${JSON.stringify(STORAGE_KEY)},${JSON.stringify(JSON.stringify(src.url))});}catch(e){}location.reload();`);
+            body.append(script);
+            activeUrl.set(src.url);
+            ctx.toast.success(`Marketplace: ${src.name}`);
+        } catch (e) {
+            ctx.toast.alert(`Could not switch automatically. Paste this in Change repository: ${src.url}`);
         }
-
-        catalog.set(Object.values(merged).sort((a, b) => a.name.localeCompare(b.name)));
-        if (failed.length > 0) {
-            lastError.set(`Could not reach: ${failed.join(", ")}`);
-        }
-        loading.set(false);
     }
-
-    ctx.registerEventHandler("refresh", () => {
-        refresh();
-    });
-
-    ctx.registerEventHandler("search", () => {
-        query.set(searchRef.current || "");
-    });
-
-    ctx.registerEventHandler("clear-search", () => {
-        searchRef.setValue("");
-        query.set("");
-    });
 
     ctx.registerEventHandler("add-source", () => {
         const name = (newSourceNameRef.current || "").trim();
@@ -205,124 +140,38 @@ $ui.register((ctx) => {
         persistSources(list);
         newSourceNameRef.setValue("");
         newSourceUrlRef.setValue("");
-        ctx.toast.success(`Added ${name}, refreshing`);
-        refresh();
+        ctx.toast.success(`Added ${name}`);
     });
 
     function removeSource(id: string) {
         const list = sources.get().filter(s => s.id !== id);
         sources.set(list);
         persistSources(list);
-        refresh();
     }
-
-    // enable/disable devuelven Promise<boolean>: sin await el catch nunca se
-    // dispara y el fallo queda como unhandled rejection.
-    async function enableExtension(id: string) {
-        try {
-            const ok = await ctx.extensions.enable(id);
-            if (!ok) {
-                ctx.toast.alert(`${id} is not installed yet, install it in Seanime first`);
-                return;
-            }
-            ctx.toast.success(`Enabled ${id}`);
-        } catch (e) {
-            ctx.toast.alert(`${id} is not installed yet, install it in Seanime first`);
-        }
-    }
-
-    async function disableExtension(id: string) {
-        try {
-            const ok = await ctx.extensions.disable(id);
-            if (!ok) {
-                ctx.toast.alert(`${id} is not installed yet`);
-                return;
-            }
-            ctx.toast.info(`Disabled ${id}`);
-        } catch (e) {
-            ctx.toast.alert(`${id} is not installed yet`);
-        }
-    }
-
-    tray.onOpen(() => {
-        if (catalog.get().length === 0) refresh();
-    });
 
     tray.render(() => {
-        const q = query.get().toLowerCase();
-        const all = catalog.get();
-        const filtered = q
-            ? all.filter(e =>
-                e.name.toLowerCase().includes(q) ||
-                (e.description || "").toLowerCase().includes(q) ||
-                (e.author || "").toLowerCase().includes(q) ||
-                (e.type || "").toLowerCase().includes(q))
-            : all;
-        const shown = filtered.slice(0, MAX_RENDERED_ENTRIES);
+        const current = activeUrl.get();
 
         return tray.stack([
-            tray.flex([
-                tray.text(loading.get()
-                    ? "Loading..."
-                    : `${all.length} extensions from ${sources.get().length} marketplaces`),
-                tray.button("Refresh", { onClick: "refresh", size: "sm", intent: "gray-subtle" }),
-            ], { style: { alignItems: "center", justifyContent: "space-between" } }),
-
-            lastError.get() ? tray.text(lastError.get()) : tray.div([]),
-
-            tray.flex([
-                tray.input("Search extensions", { fieldRef: searchRef }),
-                tray.button("Go", { onClick: "search", size: "sm" }),
-                tray.button("Clear", { onClick: "clear-search", size: "sm", intent: "gray-subtle" }),
-            ], { style: { alignItems: "flex-end" }, gap: 1 }),
-
-            tray.stack(
-                shown.map(entry =>
-                    tray.div([
-                        tray.flex([
-                            tray.text(entry.name),
-                            tray.text(`[${entry.sourceName}]`),
-                        ], { style: { justifyContent: "space-between" } }),
-                        tray.text(`${entry.type || "extension"} · ${entry.author || "unknown"}${entry.lang ? " · " + entry.lang : ""}`),
-                        entry.description ? tray.text(entry.description) : tray.div([]),
-                        entry.manifestURI ? tray.text(entry.manifestURI) : tray.div([]),
-                        tray.flex([
-                            entry.manifestURI
-                                ? tray.anchor("Open manifest", { href: entry.manifestURI, target: "_blank" })
-                                : tray.div([]),
-                            tray.button({
-                                label: "Enable",
-                                size: "sm",
-                                intent: "success-subtle",
-                                onClick: ctx.eventHandler(`enable-${entry.id}`, () => enableExtension(entry.id)),
-                            }),
-                            tray.button({
-                                label: "Disable",
-                                size: "sm",
-                                intent: "gray-subtle",
-                                onClick: ctx.eventHandler(`disable-${entry.id}`, () => disableExtension(entry.id)),
-                            }),
-                        ], { gap: 1, style: { alignItems: "center" } }),
-                    ], { style: { borderBottom: "1px solid rgba(128,128,128,0.2)", paddingBottom: "8px", marginBottom: "8px" } })
-                ),
-                {}
-            ),
-
-            filtered.length > MAX_RENDERED_ENTRIES
-                ? tray.text(`Showing first ${MAX_RENDERED_ENTRIES} of ${filtered.length} matches, refine search`)
-                : tray.div([]),
-
-            tray.text("Marketplaces"),
+            tray.text("Select a marketplace to make it Seanime's repository"),
             tray.stack(
                 sources.get().map(src =>
                     tray.flex([
-                        tray.text(`${src.name} — ${src.url}`),
+                        tray.text(`${src.url === current ? "● " : ""}${src.name}`),
+                        tray.flex([
+                        tray.button({
+                            label: src.url === current ? "Active" : "Use",
+                            size: "sm",
+                            intent: "success-subtle",
+                            onClick: ctx.eventHandler(`use-${src.id}`, () => useSource(src)),
+                        }),
                         tray.button({
                             label: "Remove",
                             size: "sm",
                             intent: "alert-subtle",
                             onClick: ctx.eventHandler(`remove-${src.id}`, () => removeSource(src.id)),
                         }),
+                        ], { gap: 1 }),
                     ], { style: { justifyContent: "space-between", alignItems: "center" } })
                 ),
                 {}
