@@ -1,0 +1,13 @@
+{
+  "id": "manhwaweb",
+  "name": "ManhwaWeb",
+  "description": "Proveedor de manga y manhwa en español de ManhwaWeb.",
+  "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/manga/ManhwaWeb/manifest.json",
+  "version": "2.0.0",
+  "author": "yerasuu",
+  "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/manga/ManhwaWeb/icon.png",
+  "type": "manga-provider",
+  "language": "typescript",
+  "lang": "es",
+  "payloadURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/main/src/manga/ManhwaWeb/main.ts"
+}

@@ -8,6 +8,7 @@ Seanime extensions (providers/plugins) repo.
 |---|---|---|---|---|
 | [AnimeAV1](src/anime/AnimeAV1) | onlinestream-provider | Online streaming, hard subs + dubs, Spanish. Servers: HLS, UPNShare, Byse, Voe, MP4Upload | `test` | Use version from [Seanime-contributions/Seanime-Providers](https://github.com/Seanime-contributions/Seanime-Providers), not this repo |
 | [multi-marketplace](src/others/multi-marketplace) | plugin | Browse/manage extensions from multiple community marketplaces at once | `test-marketplace` | |
+| [ManhwaWeb](src/manga/ManhwaWeb) | manga-provider | Manga/manhwa provider (ManhwaWeb, api.manhwaweb.com), Spanish | `main` | Rebuilt against the new API; the original from Pal-droid's repo was removed |
 | [OlympusScanlation](src/manga/OlympusScanlation) | manga-provider | Manga provider (Olympus Scanlation, olympusxyz.com), Spanish | `test` | |
 | [shademanga](src/manga/shademanga) | manga-provider | Manga/comics provider (Shade Manga), Spanish | `main` | |
 
