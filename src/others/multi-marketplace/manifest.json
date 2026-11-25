@@ -1,9 +1,9 @@
 {
   "id": "multi-marketplace4",
   "name": "Multi-Marketplace",
-  "description": "Browse and manage extensions from several community marketplaces at once, instead of switching Seanime's single Marketplace URL back and forth.",
+  "description": "Switch Seanime's marketplace repository between several community marketplaces with one click, instead of retyping the Marketplace URL.",
   "manifestURI": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/manifest.json",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "author": "yerasuu",
   "icon": "https://raw.githubusercontent.com/yerasuu/My-Seanime-Providers/test-marketplace/multi-marketplace/icon.svg",
   "type": "plugin",
