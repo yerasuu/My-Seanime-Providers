@@ -1,0 +1,13 @@
+{
+  "id": "mundodonghua",
+  "name": "MundoDonghua",
+  "version": "1.0.0",
+  "manifestURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/MundoDonghua/manifest.json",
+  "language": "typescript",
+  "type": "onlinestream-provider",
+  "description": "Donghua online con subtítulos en español desde mundodonghua.com.",
+  "author": "yerasuu",
+  "icon": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/MundoDonghua/icon.png",
+  "lang": "es",
+  "payloadURI": "https://git.yerasuu.com/_raw/plain/yerasuu/My-Seanime-Providers/refs/heads/main/src/anime/MundoDonghua/main.ts"
+}
